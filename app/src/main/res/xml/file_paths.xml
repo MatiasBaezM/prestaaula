@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solo la carpeta de fotos de devolución se comparte con la app de cámara; nada más del almacenamiento. -->
+<paths>
+    <files-path name="fotos" path="fotos/" />
+</paths>
