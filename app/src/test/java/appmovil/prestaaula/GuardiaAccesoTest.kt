@@ -4,7 +4,9 @@ import appmovil.prestaaula.model.Funcion
 import appmovil.prestaaula.model.Rol
 import appmovil.prestaaula.model.funcionPermitida
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GuardiaAccesoTest {
@@ -27,12 +29,19 @@ class GuardiaAccesoTest {
     }
 
     @Test
-    fun `UTP y Finanzas no pueden operar prestamos ni reservar`() {
+    fun `UTP y Finanzas no pueden operar prestamos ni consultar disponibilidad`() {
         for (rol in listOf(Rol.JEFE_UTP, Rol.JEFE_ADMIN_FINANZAS)) {
             assertNull(funcionPermitida(rol, Funcion.REGISTRAR_PRESTAMO.name))
             assertNull(funcionPermitida(rol, Funcion.REGISTRAR_DEVOLUCION.name))
-            assertNull(funcionPermitida(rol, Funcion.RESERVAR_EQUIPO.name))
+            assertNull(funcionPermitida(rol, Funcion.DISPONIBILIDAD.name))
+            assertFalse(rol.puedeReservar)
         }
+    }
+
+    @Test
+    fun `solo el docente puede reservar`() {
+        assertTrue(Rol.DOCENTE.puedeReservar)
+        assertFalse(Rol.ENCARGADO_CRA.puedeReservar)
     }
 
     @Test

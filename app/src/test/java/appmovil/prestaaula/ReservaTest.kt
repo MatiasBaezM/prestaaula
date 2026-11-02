@@ -10,7 +10,7 @@ import appmovil.prestaaula.model.Rol
 import appmovil.prestaaula.model.TipoEquipo
 import appmovil.prestaaula.model.Usuario
 import appmovil.prestaaula.model.agruparReservas
-import appmovil.prestaaula.ui.reservas.ReservarViewModel
+import appmovil.prestaaula.ui.disponibilidad.DisponibilidadViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -149,7 +149,7 @@ class ReservaTest {
     }
 
     // Hora fija: el resultado no depende de a qué hora se corran los tests.
-    private fun vmReservar(minutosAhora: Int) = ReservarViewModel(
+    private fun vmReservar(minutosAhora: Int) = DisponibilidadViewModel(
         inventario, repo(), Usuario(1, "Docente", "d@x.cl", Rol.DOCENTE), hoy, minutosAhora,
     )
 

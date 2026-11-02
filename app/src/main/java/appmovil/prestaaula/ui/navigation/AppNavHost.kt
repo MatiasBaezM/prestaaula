@@ -44,8 +44,6 @@ import appmovil.prestaaula.ui.reportes.ReporteUsoScreen
 import appmovil.prestaaula.ui.reportes.ReporteUsoViewModel
 import appmovil.prestaaula.ui.reservas.MisReservasScreen
 import appmovil.prestaaula.ui.reservas.MisReservasViewModel
-import appmovil.prestaaula.ui.reservas.ReservarScreen
-import appmovil.prestaaula.ui.reservas.ReservarViewModel
 
 private const val DURACION_NAV = 300
 
@@ -134,9 +132,9 @@ fun AppNavHost(auth: AuthViewModel = viewModel()) {
                     Funcion.INVENTARIO ->
                         InventarioScreen(vmDeApp { InventarioViewModel(it.inventario) }, volver)
                     Funcion.DISPONIBILIDAD ->
-                        DisponibilidadScreen(vmDeApp { DisponibilidadViewModel(it.inventario, it.reservas) }, volver)
-                    Funcion.RESERVAR_EQUIPO ->
-                        ReservarScreen(vmDeApp { ReservarViewModel(it.inventario, it.reservas, actual) }, volver)
+                        DisponibilidadScreen(
+                            vmDeApp { DisponibilidadViewModel(it.inventario, it.reservas, actual) }, volver,
+                        )
                     Funcion.MIS_RESERVAS ->
                         MisReservasScreen(vmDeApp { MisReservasViewModel(it.inventario, it.reservas, actual) }, volver)
                     Funcion.REGISTRAR_PRESTAMO ->

@@ -2,15 +2,19 @@ package appmovil.prestaaula
 
 import appmovil.prestaaula.data.InventarioRepository
 import appmovil.prestaaula.data.ReservaRepository
+import appmovil.prestaaula.data.ResultadoReserva
 import appmovil.prestaaula.model.Bloques
 import appmovil.prestaaula.model.Equipo
 import appmovil.prestaaula.model.EstadoEquipo
 import appmovil.prestaaula.model.Ocupacion
 import appmovil.prestaaula.model.Reserva
+import appmovil.prestaaula.model.Rol
 import appmovil.prestaaula.model.TipoEquipo
+import appmovil.prestaaula.model.Usuario
 import appmovil.prestaaula.model.ocupacionEnBloque
 import appmovil.prestaaula.ui.disponibilidad.DisponibilidadViewModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -64,9 +68,16 @@ class DisponibilidadTest {
         assertEquals(Ocupacion.Libre, ocupacionEnBloque(prestado, emptyList(), hoy.plusDays(1), 1, hoy))
     }
 
-    private fun vm(hoy: LocalDate): DisponibilidadViewModel {
+    // 07:00 por defecto: ningún bloque de hoy ha terminado y el resultado no depende de la hora real.
+    private fun vm(hoy: LocalDate, rol: Rol = Rol.DOCENTE, minutosAhora: Int = 7 * 60): DisponibilidadViewModel {
         val inventario = InventarioRepository(listOf(proyector))
-        return DisponibilidadViewModel(inventario, ReservaRepository(inventario, emptyList()), hoy, bloqueInicial = 3)
+        return DisponibilidadViewModel(
+            inventario,
+            ReservaRepository(inventario, emptyList()) { hoy.atTime(8, 0) },
+            Usuario(1, "Usuario", "u@x.cl", rol),
+            hoy,
+            minutosAhora,
+        )
     }
 
     @Test
@@ -76,7 +87,7 @@ class DisponibilidadTest {
         assertEquals(hoy, vm.dias.first())
         assertTrue(vm.dias.none { it.dayOfWeek == DayOfWeek.SATURDAY || it.dayOfWeek == DayOfWeek.SUNDAY })
         assertEquals(hoy, vm.fecha.value)
-        assertEquals(3, vm.bloque.value)
+        assertEquals(setOf(1), vm.bloques.value)
     }
 
     @Test
@@ -87,13 +98,36 @@ class DisponibilidadTest {
     }
 
     @Test
-    fun `viewmodel guarda fecha, bloque y filtro`() {
+    fun `viewmodel guarda fecha, bloques y filtro`() {
         val vm = vm(hoy)
         vm.elegirFecha(hoy.plusDays(1))
-        vm.elegirBloque(5)
+        vm.alternarBloque(2)
         vm.filtrarPor(TipoEquipo.PROYECTOR)
         assertEquals(hoy.plusDays(1), vm.fecha.value)
-        assertEquals(5, vm.bloque.value)
+        assertEquals(setOf(1, 2), vm.bloques.value)
         assertEquals(TipoEquipo.PROYECTOR, vm.filtroTipo.value)
+    }
+
+    @Test
+    fun `solo el docente puede reservar desde la pantalla de disponibilidad`() {
+        assertTrue(vm(hoy, Rol.DOCENTE).puedeReservar)
+        for (rol in listOf(Rol.ENCARGADO_CRA, Rol.JEFE_UTP, Rol.JEFE_ADMIN_FINANZAS)) {
+            assertFalse("${rol.name} no debería poder reservar", vm(hoy, rol).puedeReservar)
+        }
+    }
+
+    @Test
+    fun `un rol sin permiso no crea reservas aunque llame a reservar`() {
+        val vm = vm(hoy, Rol.ENCARGADO_CRA)
+        assertEquals(ResultadoReserva.Error("Tu rol no puede reservar equipos"), vm.reservar(1, "7°A"))
+        assertTrue(vm.reservas.value.isEmpty())
+    }
+
+    @Test
+    fun `el docente reserva el equipo libre del tramo elegido`() {
+        val vm = vm(hoy)
+        vm.alternarBloque(2)
+        assertTrue(vm.reservar(1, "7°A") is ResultadoReserva.Exito)
+        assertEquals(setOf(1, 2), vm.reservas.value.map { it.bloque }.toSet())
     }
 }

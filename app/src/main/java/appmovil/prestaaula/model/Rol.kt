@@ -2,7 +2,6 @@ package appmovil.prestaaula.model
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.BookmarkAdd
 import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.EventAvailable
 import androidx.compose.material.icons.filled.Inventory2
@@ -14,8 +13,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class Funcion(val titulo: String, val descripcion: String, val icono: ImageVector) {
     INVENTARIO("Inventario", "Equipos del colegio y su estado", Icons.Filled.Inventory2),
-    DISPONIBILIDAD("Disponibilidad", "Qué equipos están libres por bloque", Icons.Filled.EventAvailable),
-    RESERVAR_EQUIPO("Reservar equipo", "Reserva con anticipación para tu clase", Icons.Filled.BookmarkAdd),
+    DISPONIBILIDAD("Disponibilidad", "Equipos libres por bloque; el docente reserva desde aquí", Icons.Filled.EventAvailable),
     MIS_RESERVAS("Mis reservas", "Revisa o cancela tus reservas", Icons.Filled.Checklist),
     RETIRO_DEVOLUCION("Retiro y devolución", "Confirma el retiro y la devolución", Icons.Filled.SwapHoriz),
     REGISTRAR_PRESTAMO("Registrar préstamo", "Entrega un equipo a un docente", Icons.Filled.Outbox),
@@ -28,8 +26,7 @@ enum class Rol(val etiqueta: String, val funciones: List<Funcion>) {
     DOCENTE(
         "Docente",
         listOf(
-            Funcion.DISPONIBILIDAD, Funcion.RESERVAR_EQUIPO,
-            Funcion.MIS_RESERVAS, Funcion.RETIRO_DEVOLUCION,
+            Funcion.DISPONIBILIDAD, Funcion.MIS_RESERVAS, Funcion.RETIRO_DEVOLUCION,
         ),
     ),
     ENCARGADO_CRA(
@@ -49,6 +46,9 @@ enum class Rol(val etiqueta: String, val funciones: List<Funcion>) {
     );
 
     fun puede(funcion: Funcion) = funcion in funciones
+
+    // Dentro de Disponibilidad solo el docente puede convertir un equipo libre en una reserva.
+    val puedeReservar: Boolean get() = this == DOCENTE
 }
 
 // Guardia de acceso: la función solo se resuelve si el nombre es válido Y el rol la tiene.

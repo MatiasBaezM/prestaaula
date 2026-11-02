@@ -24,8 +24,8 @@ La app muestra **solo las funciones del rol** con que se inicia sesión.
 | Función | Docente | Encargado CRA | Jefe UTP | Jefe Adm. y Finanzas |
 |---|:-:|:-:|:-:|:-:|
 | Inventario (ver y agregar equipos) | | ✔ | | |
-| Disponibilidad por día y bloque | ✔ | ✔ | | |
-| Reservar equipo (uno o varios bloques seguidos) | ✔ | | | |
+| Disponibilidad por día y bloque (consulta) | ✔ | ✔ | | |
+| Reservar un equipo libre, desde Disponibilidad (uno o varios bloques seguidos) | ✔ | | | |
 | Mis reservas (ver y cancelar) | ✔ | | | |
 | Retiro y devolución (confirmar retiro, avisar devolución) | ✔ | | | |
 | Registrar préstamo | | ✔ | | |

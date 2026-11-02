@@ -33,7 +33,7 @@ class FlujoPorRolTest {
 
     private val docente = Cuenta(
         "docente@marcelapaz.cl", "docente123", "Prof. Muñoz", "Docente",
-        listOf("Disponibilidad", "Reservar equipo", "Mis reservas", "Retiro y devolución"),
+        listOf("Disponibilidad", "Mis reservas", "Retiro y devolución"),
     )
     private val cra = Cuenta(
         "cra@marcelapaz.cl", "cra123", "Patricia Vega", "Encargado CRA",
@@ -52,7 +52,7 @@ class FlujoPorRolTest {
     )
 
     private val todasLasFunciones = listOf(
-        "Inventario", "Disponibilidad", "Reservar equipo", "Mis reservas", "Retiro y devolución",
+        "Inventario", "Disponibilidad", "Mis reservas", "Retiro y devolución",
         "Registrar préstamo", "Registrar devolución", "Reporte de uso", "Equipos con incidencias",
     )
 
@@ -102,7 +102,7 @@ class FlujoPorRolTest {
     }
 
     @Test
-    fun docente_veSoloSusCuatroFunciones() = probarRol(docente)
+    fun docente_veSoloSusTresFunciones()= probarRol(docente)
 
     @Test
     fun encargadoCra_veSusSeisFunciones() = probarRol(cra)

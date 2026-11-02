@@ -51,7 +51,8 @@ class AuthRepositoryTest {
 
     @Test
     fun `cada rol solo puede las funciones de la tabla`() {
-        assertTrue(Rol.DOCENTE.puede(Funcion.RESERVAR_EQUIPO))
+        assertEquals(3, Rol.DOCENTE.funciones.size)
+        assertTrue(Rol.DOCENTE.puede(Funcion.DISPONIBILIDAD))
         assertFalse(Rol.DOCENTE.puede(Funcion.INVENTARIO))
         assertEquals(6, Rol.ENCARGADO_CRA.funciones.size)
         assertEquals(
