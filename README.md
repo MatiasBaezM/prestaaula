@@ -23,7 +23,7 @@ La app muestra **solo las funciones del rol** con que se inicia sesión.
 
 | Función | Docente | Encargado CRA | Jefe UTP | Jefe Adm. y Finanzas |
 |---|:-:|:-:|:-:|:-:|
-| Inventario (ver y agregar equipos) | | ✔ | | |
+| Inventario (ver, agregar equipos con todos sus campos y marcar un equipo como dañado) | | ✔ | | |
 | Disponibilidad por día y bloque (consulta) | ✔ | ✔ | | |
 | Reservar un equipo libre, desde Disponibilidad (uno o varios bloques seguidos) | ✔ | | | |
 | Mis reservas (ver y cancelar) | ✔ | | | |
@@ -37,6 +37,8 @@ Reglas de negocio principales:
 
 - Un equipo no puede reservarse dos veces en el mismo bloque, ni reservarse si está prestado o en mantención.
 - Una reserva ocupa bloques **seguidos** (clase doble). Jornada de 9 bloques de 45 min desde las 08:00, lunes a viernes.
+- Un equipo se agrega con tipo, marca, número de identificación interno (sugerido, editable, sin repetir) y estado inicial (Disponible o En mantención).
+- El CRA puede marcar como dañado un equipo disponible: pasa a **En mantención** y no se puede reservar ni prestar hasta repararlo. Si tenía reservas pendientes, se le avisa.
 - Si el equipo vuelve con daños o faltantes, las observaciones son obligatorias y el equipo pasa a **En mantención** hasta que el CRA lo marque como reparado.
 - Cada préstamo guarda al docente responsable; los reportes muestran el último responsable de cada equipo.
 

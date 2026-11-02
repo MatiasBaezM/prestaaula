@@ -130,7 +130,7 @@ fun AppNavHost(auth: AuthViewModel = viewModel()) {
                 val volver: () -> Unit = { navController.popBackStack() }
                 when (funcion) {
                     Funcion.INVENTARIO ->
-                        InventarioScreen(vmDeApp { InventarioViewModel(it.inventario) }, volver)
+                        InventarioScreen(vmDeApp { InventarioViewModel(it.inventario, it.reservas) }, volver)
                     Funcion.DISPONIBILIDAD ->
                         DisponibilidadScreen(
                             vmDeApp { DisponibilidadViewModel(it.inventario, it.reservas, actual) }, volver,

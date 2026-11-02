@@ -10,6 +10,8 @@ object Validaciones {
     // 7°A, 7A, 7 A, 2°M, 12°B…
     private val FORMATO_CURSO = Regex("^\\d{1,2}\\s?°?\\s?[A-Za-z]$")
 
+    private val FORMATO_CODIGO = Regex("^[A-Z]{2}-\\d{3}$")
+
     const val MAX_MARCA = 30
     const val MAX_OBSERVACIONES = 200
 
@@ -40,6 +42,18 @@ object Validaciones {
             v.isEmpty() -> "Ingresa la marca"
             v.length < 2 -> "La marca debe tener al menos 2 letras"
             v.length > MAX_MARCA -> "Máximo $MAX_MARCA caracteres"
+            else -> null
+        }
+    }
+
+    // Número de identificación interno: prefijo del tipo + 3 dígitos (NB-004), sin repetir uno existente.
+    fun codigo(valor: String, tipo: TipoEquipo, existentes: Collection<String>): String? {
+        val v = valor.trim().uppercase()
+        return when {
+            v.isEmpty() -> "Ingresa el número de identificación"
+            !FORMATO_CODIGO.matches(v) -> "Usa el formato ${tipo.prefijo}-001"
+            !v.startsWith(tipo.prefijo + "-") -> "Un ${tipo.etiqueta.lowercase()} debe empezar con ${tipo.prefijo}-"
+            existentes.any { it.equals(v, ignoreCase = true) } -> "Ya existe un equipo con el código $v"
             else -> null
         }
     }

@@ -18,7 +18,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ReportProblem
 import androidx.compose.material.icons.filled.Sell
+import androidx.compose.material.icons.filled.Tag
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.foundation.verticalScroll
+import appmovil.prestaaula.ui.components.rememberVibrador
 import androidx.compose.runtime.mutableIntStateOf
 import appmovil.prestaaula.model.Validaciones
 import appmovil.prestaaula.ui.components.CampoValidado
@@ -58,11 +63,21 @@ import appmovil.prestaaula.ui.theme.PrestaaulaTheme
 fun InventarioScreen(vm: InventarioViewModel, onVolver: () -> Unit) {
     val equipos by vm.equipos.collectAsState()
     val filtro by vm.filtroTipo.collectAsState()
+    val vibrador = rememberVibrador()
+    // Un pulso confirma la acción; dos avisan que no se pudo (misma convención que el resto de la app).
+    fun conVibracion(error: String?): String? {
+        if (error == null) vibrador.exito() else vibrador.error()
+        return error
+    }
     InventarioContenido(
         equipos = equipos,
         filtro = filtro,
         onFiltrar = vm::filtrarPor,
-        onAgregar = vm::agregar,
+        onAgregar = { tipo, marca, codigo, estado -> conVibracion(vm.agregar(tipo, marca, codigo, estado)) },
+        codigoSugerido = vm::codigoSugerido,
+        errorCodigo = vm::errorCodigo,
+        reservasPendientes = vm::reservasPendientes,
+        onMarcarDanado = { id -> conVibracion(vm.marcarDanado(id)) },
         onVolver = onVolver,
     )
 }
@@ -73,10 +88,16 @@ private fun InventarioContenido(
     equipos: List<Equipo>,
     filtro: TipoEquipo?,
     onFiltrar: (TipoEquipo?) -> Unit,
-    onAgregar: (TipoEquipo, String) -> String?,
+    onAgregar: (TipoEquipo, String, String, EstadoEquipo) -> String?,
+    codigoSugerido: (TipoEquipo) -> String,
+    errorCodigo: (TipoEquipo, String) -> String?,
+    reservasPendientes: (Int) -> Int,
+    onMarcarDanado: (Int) -> String?,
     onVolver: () -> Unit,
 ) {
     var mostrarDialogo by rememberSaveable { mutableStateOf(false) }
+    var equipoADanarId by rememberSaveable { mutableStateOf<Int?>(null) }
+    val equipoADanar = equipos.firstOrNull { it.id == equipoADanarId }
     val visibles = if (filtro == null) equipos else equipos.filter { it.tipo == filtro }
 
     Scaffold(
@@ -125,7 +146,9 @@ private fun InventarioContenido(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 // animateItem: al filtrar o agregar un equipo, las tarjetas se deslizan en vez de saltar.
-                items(visibles, key = { it.id }) { EquipoCard(it, Modifier.animateItem()) }
+                items(visibles, key = { it.id }) {
+                    EquipoCard(it, Modifier.animateItem()) { equipoADanarId = it.id }
+                }
             }
         }
     }
@@ -133,33 +156,85 @@ private fun InventarioContenido(
     if (mostrarDialogo) {
         AgregarEquipoDialogo(
             onGuardar = onAgregar,
+            codigoSugerido = codigoSugerido,
+            errorCodigo = errorCodigo,
             onCerrar = { mostrarDialogo = false },
+        )
+    }
+
+    if (equipoADanar != null) {
+        DanadoDialogo(
+            equipo = equipoADanar,
+            pendientes = reservasPendientes(equipoADanar.id),
+            onConfirmar = {
+                onMarcarDanado(equipoADanar.id)
+                equipoADanarId = null
+            },
+            onCerrar = { equipoADanarId = null },
         )
     }
 }
 
 @Composable
-private fun EquipoCard(equipo: Equipo, modifier: Modifier = Modifier) {
+private fun EquipoCard(equipo: Equipo, modifier: Modifier = Modifier, onDanado: () -> Unit) {
     Card(
         modifier = modifier.fillMaxWidth().heightIn(min = 64.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Column {
-                Text(equipo.codigo, style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "${equipo.tipo.etiqueta} · ${equipo.marca}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Column {
+                    Text(equipo.codigo, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "${equipo.tipo.etiqueta} · ${equipo.marca}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                EstadoChip(equipo.estado)
             }
-            EstadoChip(equipo.estado)
+            // Un equipo prestado se marca al devolverlo; uno en mantención ya está fuera de servicio.
+            if (equipo.estado == EstadoEquipo.DISPONIBLE) {
+                OutlinedButton(
+                    onClick = onDanado,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(top = 8.dp),
+                ) {
+                    Icon(Icons.Filled.ReportProblem, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Text("Marcar como dañado", modifier = Modifier.padding(start = 8.dp))
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun DanadoDialogo(equipo: Equipo, pendientes: Int, onConfirmar: () -> Unit, onCerrar: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onCerrar,
+        title = { Text("Marcar ${equipo.codigo} como dañado") },
+        text = {
+            Column {
+                Text(
+                    "El equipo pasará a \"En mantención\": no se podrá reservar ni prestar hasta que " +
+                        "lo marques como reparado en Equipos con incidencias.",
+                )
+                if (pendientes > 0) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Tiene $pendientes ${if (pendientes == 1) "reserva pendiente" else "reservas pendientes"}: " +
+                            "seguirán registradas, pero el equipo no podrá entregarse.",
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onConfirmar) { Text("Marcar como dañado") } },
+        dismissButton = { TextButton(onClick = onCerrar) { Text("Cancelar") } },
+    )
 }
 
 @Composable
@@ -172,13 +247,20 @@ private fun EstadoChip(estado: EstadoEquipo) {
     Etiqueta(estado.etiqueta, tono)
 }
 
+// Todos los datos de un equipo según el caso: tipo, marca, número de identificación interno y estado.
 @Composable
 private fun AgregarEquipoDialogo(
-    onGuardar: (TipoEquipo, String) -> String?,
+    onGuardar: (TipoEquipo, String, String, EstadoEquipo) -> String?,
+    codigoSugerido: (TipoEquipo) -> String,
+    errorCodigo: (TipoEquipo, String) -> String?,
     onCerrar: () -> Unit,
 ) {
     var tipo by rememberSaveable { mutableStateOf(TipoEquipo.NOTEBOOK) }
+    var estado by rememberSaveable { mutableStateOf(EstadoEquipo.DISPONIBLE) }
     var marca by rememberSaveable { mutableStateOf("") }
+    // Mientras el CRA no escribe el código, se muestra el siguiente libre del tipo elegido.
+    var codigoEscrito by rememberSaveable { mutableStateOf<String?>(null) }
+    val codigo = codigoEscrito ?: codigoSugerido(tipo)
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var intentos by rememberSaveable { mutableIntStateOf(0) }
 
@@ -186,7 +268,8 @@ private fun AgregarEquipoDialogo(
         onDismissRequest = onCerrar,
         title = { Text("Agregar equipo") },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("Tipo", style = MaterialTheme.typography.labelLarge)
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -203,17 +286,34 @@ private fun AgregarEquipoDialogo(
                     icono = Icons.Filled.Sell,
                     error = Validaciones.marca(marca),
                     intentos = intentos,
-                    ayuda = "El código interno se asigna automáticamente.",
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(4.dp))
+                CampoValidado(
+                    valor = codigo,
+                    onValorChange = { codigoEscrito = it.uppercase(); error = null },
+                    etiqueta = "Número de identificación",
+                    icono = Icons.Filled.Tag,
+                    error = errorCodigo(tipo, codigo),
+                    intentos = intentos,
+                    ayuda = "Sugerido: ${codigoSugerido(tipo)}. Puedes cambiarlo.",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text("Estado inicial", style = MaterialTheme.typography.labelLarge)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(EstadoEquipo.DISPONIBLE, EstadoEquipo.EN_MANTENCION).forEach {
+                        FilterChip(selected = estado == it, onClick = { estado = it }, label = { Text(it.etiqueta) })
+                    }
+                }
                 MensajeError(error)
             }
         },
         confirmButton = {
             TextButton(onClick = {
                 intentos++
-                if (Validaciones.marca(marca) == null) {
-                    error = onGuardar(tipo, marca)
+                if (Validaciones.marca(marca) == null && errorCodigo(tipo, codigo) == null) {
+                    error = onGuardar(tipo, marca, codigo, estado)
                     if (error == null) onCerrar()
                 }
             }) { Text("Guardar") }
@@ -234,7 +334,11 @@ private fun InventarioPreview() {
             ),
             filtro = null,
             onFiltrar = {},
-            onAgregar = { _, _ -> null },
+            onAgregar = { _, _, _, _ -> null },
+            codigoSugerido = { "NB-002" },
+            errorCodigo = { _, _ -> null },
+            reservasPendientes = { 0 },
+            onMarcarDanado = { null },
             onVolver = {},
         )
     }
