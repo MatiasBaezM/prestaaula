@@ -3,23 +3,24 @@ package appmovil.prestaaula
 import android.content.Context
 import android.database.sqlite.SQLiteConstraintException
 import androidx.room.Room
+import androidx.room.withTransaction
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import appmovil.prestaaula.data.db.AlmacenDao
-import appmovil.prestaaula.data.db.Instantanea
 import appmovil.prestaaula.data.db.PrestaAulaDb
 import appmovil.prestaaula.data.db.aEntidad
 import appmovil.prestaaula.data.db.aModelo
-import appmovil.prestaaula.data.db.sincronizar
 import appmovil.prestaaula.model.Equipo
 import appmovil.prestaaula.model.EstadoDevolucion
 import appmovil.prestaaula.model.EstadoEquipo
 import appmovil.prestaaula.model.Prestamo
 import appmovil.prestaaula.model.Reserva
 import appmovil.prestaaula.model.TipoEquipo
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -27,56 +28,108 @@ import org.junit.runner.RunWith
 import java.time.LocalDate
 import java.time.LocalDateTime
 
+// Los DAOs contra el SQLite real del dispositivo (base en memoria, se borra al terminar cada test).
 @RunWith(AndroidJUnit4::class)
 class BaseDatosTest {
 
     private lateinit var db: PrestaAulaDb
-    private lateinit var dao: AlmacenDao
 
     @Before
     fun abrir() {
         val contexto = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(contexto, PrestaAulaDb::class.java).build()
-        dao = db.almacen()
     }
 
     @After
     fun cerrar() = db.close()
 
+    private val notebook = Equipo(0, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo")
+    private val fecha = LocalDate.of(2026, 10, 30)
+    private val retiro = LocalDateTime.of(2026, 10, 29, 8, 0)
+
     @Test
-    fun guardaYRecuperaLasTresTablas() = runBlocking {
-        val equipos = listOf(Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo"))
-        val reservas = listOf(Reserva(1, 1, 2, "Prof. Díaz", "7°A", LocalDate.of(2026, 10, 30), 3))
-        val prestamos = listOf(
-            Prestamo(
-                1, 1, 2, "Prof. Díaz", "7°A", LocalDateTime.of(2026, 10, 29, 8, 0),
-                devolucion = LocalDateTime.of(2026, 10, 29, 9, 0),
-                estadoDevolucion = EstadoDevolucion.BUEN_ESTADO,
-            ),
-        )
+    fun insertarAsignaIdYSeRecuperaIgual() = runBlocking {
+        val id = db.equipoDao().insertar(notebook.aEntidad()).toInt()
 
-        dao.reemplazarTodo(equipos.map { it.aEntidad() }, reservas.map { it.aEntidad() }, prestamos.map { it.aEntidad() })
-
-        assertEquals(equipos, dao.equipos().map { it.aModelo() })
-        assertEquals(reservas, dao.reservas().map { it.aModelo() })
-        assertEquals(prestamos, dao.prestamos().map { it.aModelo() })
+        assertEquals(1, id)
+        assertEquals(notebook.copy(id = id), db.equipoDao().obtener(id)?.aModelo())
+        assertNull(db.equipoDao().obtener(99))
     }
 
     @Test
-    fun reemplazarTodoSobrescribeLoAnterior() = runBlocking {
-        dao.reemplazarTodo(listOf(Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo").aEntidad()), emptyList(), emptyList())
-        dao.reemplazarTodo(listOf(Equipo(2, "TB-001", TipoEquipo.TABLET, "Samsung").aEntidad()), emptyList(), emptyList())
+    fun actualizarModificaLaFila() = runBlocking {
+        val id = db.equipoDao().insertar(notebook.aEntidad()).toInt()
 
-        assertEquals(listOf(2), dao.equipos().map { it.id })
+        db.equipoDao().actualizar(notebook.copy(id = id, marca = "Dell").aEntidad())
+        db.equipoDao().cambiarEstado(id, EstadoEquipo.EN_MANTENCION)
+
+        val guardado = db.equipoDao().obtener(id)!!.aModelo()
+        assertEquals("Dell", guardado.marca)
+        assertEquals(EstadoEquipo.EN_MANTENCION, guardado.estado)
+    }
+
+    @Test
+    fun reservasYPrestamosSeGuardanConSusFechas() = runBlocking {
+        val equipoId = db.equipoDao().insertar(notebook.aEntidad()).toInt()
+        val reserva = Reserva(0, equipoId, 2, "Prof. Díaz", "7°A", fecha, 3)
+        val prestamo = Prestamo(0, equipoId, 2, "Prof. Díaz", "7°A", retiro)
+
+        val idReserva = db.reservaDao().insertar(listOf(reserva.aEntidad())).single().toInt()
+        val idPrestamo = db.prestamoDao().insertar(prestamo.aEntidad()).toInt()
+
+        assertEquals(listOf(reserva.copy(id = idReserva)), db.reservaDao().obtenerDeEquipo(equipoId).map { it.aModelo() })
+        assertEquals(prestamo.copy(id = idPrestamo), db.prestamoDao().obtener(idPrestamo)?.aModelo())
+    }
+
+    @Test
+    fun registrarLaDevolucionActualizaElPrestamo() = runBlocking {
+        val equipoId = db.equipoDao().insertar(notebook.aEntidad()).toInt()
+        val id = db.prestamoDao().insertar(Prestamo(0, equipoId, 2, "Prof. Díaz", "7°A", retiro).aEntidad()).toInt()
+
+        val devuelto = db.prestamoDao().obtener(id)!!.aModelo().copy(
+            devolucion = retiro.plusHours(1), estadoDevolucion = EstadoDevolucion.CON_DANOS,
+            observaciones = "Pantalla trizada", foto = "dev_1.jpg",
+        )
+        db.prestamoDao().actualizar(devuelto.aEntidad())
+
+        assertEquals(devuelto, db.prestamoDao().obtener(id)?.aModelo())
+    }
+
+    @Test
+    fun laListaObservadaTraeLoUltimoGuardado() = runBlocking {
+        db.equipoDao().insertar(notebook.aEntidad())
+        db.equipoDao().insertar(Equipo(0, "TB-001", TipoEquipo.TABLET, "Samsung").aEntidad())
+
+        assertEquals(listOf("NB-001", "TB-001"), db.equipoDao().observarTodos().first().map { it.codigo })
+    }
+
+    @Test
+    fun borrarReservasPorId() = runBlocking {
+        val equipoId = db.equipoDao().insertar(notebook.aEntidad()).toInt()
+        val ids = db.reservaDao().insertar(
+            listOf(1, 2, 3).map { Reserva(0, equipoId, 2, "Prof. Díaz", "7°A", fecha, it).aEntidad() },
+        ).map { it.toInt() }
+
+        db.reservaDao().borrar(ids.take(2))
+
+        assertEquals(listOf(ids[2]), db.reservaDao().observarTodas().first().map { it.id })
+    }
+
+    @Test
+    fun codigoRepetidoSeRechaza() = runBlocking {
+        db.equipoDao().insertar(notebook.aEntidad())
+        try {
+            db.equipoDao().insertar(notebook.copy(marca = "HP").aEntidad())
+            fail("Debió rechazar un segundo equipo con el código NB-001")
+        } catch (_: SQLiteConstraintException) {
+        }
+        assertEquals(1, db.equipoDao().contar())
     }
 
     @Test
     fun reservaDeEquipoInexistenteSeRechaza() = runBlocking {
-        val equipo = Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo").aEntidad()
-        val huerfana = Reserva(1, 99, 2, "Prof. Díaz", "7°A", LocalDate.of(2026, 10, 30), 3).aEntidad()
-
         try {
-            dao.reemplazarTodo(listOf(equipo), listOf(huerfana), emptyList())
+            db.reservaDao().insertar(listOf(Reserva(0, 99, 2, "Prof. Díaz", "7°A", fecha, 3).aEntidad()))
             fail("Debió rechazar una reserva de un equipo que no existe")
         } catch (_: SQLiteConstraintException) {
         }
@@ -84,92 +137,25 @@ class BaseDatosTest {
 
     @Test
     fun prestamoDeEquipoInexistenteSeRechaza() = runBlocking {
-        val equipo = Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo").aEntidad()
-        val huerfano = Prestamo(1, 99, 2, "Prof. Díaz", "7°A", LocalDateTime.of(2026, 10, 29, 8, 0)).aEntidad()
-
         try {
-            dao.reemplazarTodo(listOf(equipo), emptyList(), listOf(huerfano))
+            db.prestamoDao().insertar(Prestamo(0, 99, 2, "Prof. Díaz", "7°A", retiro).aEntidad())
             fail("Debió rechazar un préstamo de un equipo que no existe")
         } catch (_: SQLiteConstraintException) {
         }
     }
 
     @Test
-    fun siFallaElReemplazoSeConservaLoAnterior() = runBlocking {
-        val anterior = Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo").aEntidad()
-        dao.reemplazarTodo(listOf(anterior), emptyList(), emptyList())
-
-        val huerfana = Reserva(1, 99, 2, "Prof. Díaz", "7°A", LocalDate.of(2026, 10, 30), 3).aEntidad()
+    fun siFallaLaTransaccionNoQuedaNadaAMedias() = runBlocking {
         try {
-            dao.reemplazarTodo(listOf(Equipo(2, "TB-001", TipoEquipo.TABLET, "Samsung").aEntidad()), listOf(huerfana), emptyList())
+            db.withTransaction {
+                db.equipoDao().insertar(notebook.aEntidad())
+                db.reservaDao().insertar(listOf(Reserva(0, 99, 2, "Prof. Díaz", "7°A", fecha, 3).aEntidad()))
+            }
+            fail("Debió rechazar la reserva huérfana")
         } catch (_: SQLiteConstraintException) {
         }
-
-        // La transacción se revirtió completa: sigue el equipo 1, no el 2.
-        assertEquals(listOf(1), dao.equipos().map { it.id })
-    }
-
-    private val nb1 = Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo").aEntidad()
-    private val tb1 = Equipo(2, "TB-001", TipoEquipo.TABLET, "Samsung").aEntidad()
-    private val reserva = Reserva(1, 1, 2, "Prof. Díaz", "7°A", LocalDate.of(2026, 10, 30), 3).aEntidad()
-    private val prestamo = Prestamo(1, 1, 2, "Prof. Díaz", "7°A", LocalDateTime.of(2026, 10, 29, 8, 0)).aEntidad()
-
-    private suspend fun enDisco() = Instantanea(dao.equipos(), dao.reservas(), dao.prestamos())
-
-    @Test
-    fun sincronizarSinInstantaneaReemplazaTodo() = runBlocking {
-        dao.reemplazarTodo(listOf(tb1), emptyList(), emptyList())
-
-        val nueva = Instantanea(listOf(nb1), listOf(reserva), listOf(prestamo))
-        dao.sincronizar(null, nueva)
-
-        assertEquals(nueva, enDisco())
-    }
-
-    @Test
-    fun sincronizarAplicaAltasCambiosYBajas() = runBlocking {
-        val inicial = Instantanea(listOf(nb1), listOf(reserva), emptyList())
-        dao.sincronizar(null, inicial)
-
-        // Se presta NB-001 (cambia de estado, teniendo una reserva que lo referencia: el upsert
-        // actualiza en el lugar y no choca con la clave foránea), se consume la reserva y se
-        // agrega un equipo.
-        val nueva = Instantanea(
-            listOf(nb1.copy(estado = EstadoEquipo.PRESTADO), tb1),
-            emptyList(),
-            listOf(prestamo),
-        )
-        dao.sincronizar(inicial, nueva)
-
-        assertEquals(nueva, enDisco())
-    }
-
-    @Test
-    fun sincronizarSoloTocaLoQueCambio() = runBlocking {
-        val inicial = Instantanea(listOf(nb1, tb1), emptyList(), emptyList())
-        dao.sincronizar(null, inicial)
-
-        // Simula una fila que la app no conoce: si sincronizar reescribiera todo, desaparecería.
-        dao.insertarReservas(listOf(reserva))
-
-        dao.sincronizar(inicial, inicial.copy(equipos = listOf(nb1, tb1.copy(marca = "Lenovo"))))
-
-        assertEquals(listOf(reserva), dao.reservas())
-        assertEquals("Lenovo", dao.equipos().single { it.id == 2 }.marca)
-    }
-
-    @Test
-    fun siFallaSincronizarNoQuedaNadaAMedias() = runBlocking {
-        val inicial = Instantanea(listOf(nb1), emptyList(), emptyList())
-        dao.sincronizar(null, inicial)
-
-        val huerfana = reserva.copy(id = 2, equipoId = 99)
-        try {
-            dao.sincronizar(inicial, Instantanea(listOf(nb1, tb1), listOf(huerfana), emptyList()))
-            fail("Debió rechazar una reserva de un equipo que no existe")
-        } catch (_: SQLiteConstraintException) {
-        }
-
-        assertEquals(inicial, enDisco())
+        // El equipo se insertó antes del error, pero la transacción se revirtió completa.
+        assertEquals(0, db.equipoDao().contar())
+        assertTrue(db.reservaDao().observarTodas().first().isEmpty())
     }
 }

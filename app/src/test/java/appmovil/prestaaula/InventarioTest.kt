@@ -9,12 +9,13 @@ import appmovil.prestaaula.model.Reserva
 import appmovil.prestaaula.model.TipoEquipo
 import appmovil.prestaaula.ui.inventario.InventarioViewModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 
-class InventarioTest {
+class InventarioTest : PruebaConBaseDeDatos() {
 
     private val base = listOf(
         Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo"),
@@ -22,57 +23,80 @@ class InventarioTest {
         Equipo(3, "PY-001", TipoEquipo.PROYECTOR, "Epson"),
     )
 
-    @Test
-    fun `agregar asigna id y codigo correlativo por tipo`() {
-        val repo = InventarioRepository(base)
-        val nuevo = repo.agregar(TipoEquipo.NOTEBOOK, "  Dell ")
+    private fun repo(equipos: List<Equipo> = base): InventarioRepository {
+        guardar(equipos = equipos)
+        return InventarioRepository(db)
+    }
 
-        assertEquals(4, nuevo.id)
+    @Test
+    fun `agregar asigna id y codigo correlativo por tipo`() = prueba {
+        val nuevo = repo().agregar(TipoEquipo.NOTEBOOK, "  Dell ")!!
+
+        assertEquals(4, nuevo.id) // lo asignó SQLite
         assertEquals("NB-003", nuevo.codigo)
         assertEquals("Dell", nuevo.marca)
         assertEquals(EstadoEquipo.DISPONIBLE, nuevo.estado)
-        assertEquals(4, repo.equipos.value.size)
+        assertEquals(nuevo, equiposEnBase().last()) // quedó guardado tal cual
     }
 
     @Test
-    fun `primer equipo de un tipo nuevo parte en 001`() {
-        val repo = InventarioRepository(base)
-        assertEquals("TB-001", repo.agregar(TipoEquipo.TABLET, "Samsung").codigo)
+    fun `primer equipo de un tipo nuevo parte en 001`() = prueba {
+        assertEquals("TB-001", repo().agregar(TipoEquipo.TABLET, "Samsung")!!.codigo)
     }
 
     @Test
-    fun `el codigo nuevo nunca repite uno existente aunque falten numeros`() {
+    fun `el codigo nuevo nunca repite uno existente aunque falten numeros`() = prueba {
         // Solo existe NB-002: "cantidad + 1" daría NB-002 otra vez.
-        val repo = InventarioRepository(listOf(Equipo(1, "NB-002", TipoEquipo.NOTEBOOK, "HP")))
-        assertEquals("NB-003", repo.agregar(TipoEquipo.NOTEBOOK, "Dell").codigo)
-        assertEquals(2, repo.equipos.value.map { it.codigo }.distinct().size)
+        val repo = repo(listOf(Equipo(1, "NB-002", TipoEquipo.NOTEBOOK, "HP")))
+        assertEquals("NB-003", repo.agregar(TipoEquipo.NOTEBOOK, "Dell")!!.codigo)
+        assertEquals(2, equiposEnBase().map { it.codigo }.distinct().size)
     }
 
     @Test
-    fun `cambiar estado actualiza solo ese equipo`() {
-        val repo = InventarioRepository(base)
-        repo.cambiarEstado(2, EstadoEquipo.PRESTADO)
-
-        assertEquals(EstadoEquipo.PRESTADO, repo.equipos.value.first { it.id == 2 }.estado)
-        assertEquals(EstadoEquipo.DISPONIBLE, repo.equipos.value.first { it.id == 1 }.estado)
+    fun `un codigo repetido no se guarda`() = prueba {
+        assertNull(repo().agregar(TipoEquipo.NOTEBOOK, "Dell", "NB-001"))
+        assertEquals(3, equiposEnBase().size)
     }
+
+    @Test
+    fun `cambiar estado actualiza solo ese equipo`() = prueba {
+        repo().cambiarEstado(2, EstadoEquipo.PRESTADO)
+
+        assertEquals(EstadoEquipo.PRESTADO, estadoDe(2))
+        assertEquals(EstadoEquipo.DISPONIBLE, estadoDe(1))
+    }
+
+    @Test
+    fun `solo un equipo en mantencion se puede marcar reparado`() = prueba {
+        val repo = repo(base + Equipo(4, "NB-003", TipoEquipo.NOTEBOOK, "Acer", EstadoEquipo.EN_MANTENCION))
+
+        assertFalse(repo.marcarReparado(1)) // ya disponible
+        assertFalse(repo.marcarReparado(99)) // no existe
+        assertTrue(repo.marcarReparado(4))
+        assertEquals(EstadoEquipo.DISPONIBLE, estadoDe(4))
+    }
+
+    // --- ViewModel ---
 
     private val hoy = LocalDate.of(2026, 10, 29)
 
     private fun vm(reservas: List<Reserva> = emptyList()): InventarioViewModel {
-        val inventario = InventarioRepository(base)
-        return InventarioViewModel(inventario, ReservaRepository(inventario, reservas), hoy)
+        guardar(equipos = base, reservas = reservas)
+        val vm = InventarioViewModel(InventarioRepository(db), ReservaRepository(db), hoy)
+        esperarQue { vm.equipos.value.size == base.size } // primera lectura de Room
+        return vm
     }
 
     @Test
     fun `viewmodel rechaza marca vacia y acepta una valida`() {
         val vm = vm()
 
-        assertEquals("Ingresa la marca", vm.agregar(TipoEquipo.TABLET, "  "))
-        assertEquals(3, vm.equipos.value.size)
+        assertEquals("Ingresa la marca", resultado { vm.agregar(TipoEquipo.TABLET, "  ", alTerminar = it) })
+        assertEquals(3, equiposEnBase().size)
 
-        assertNull(vm.agregar(TipoEquipo.TABLET, "Apple"))
-        assertEquals(4, vm.equipos.value.size)
+        assertNull(resultado { vm.agregar(TipoEquipo.TABLET, "Apple", alTerminar = it) })
+        assertEquals(4, equiposEnBase().size)
+        esperarQue { vm.equipos.value.size == 4 } // la pantalla se entera sola del cambio
     }
 
     @Test
@@ -96,9 +120,9 @@ class InventarioTest {
     @Test
     fun `se puede agregar un equipo con codigo propio y estado inicial`() {
         val vm = vm()
-        assertNull(vm.agregar(TipoEquipo.NOTEBOOK, "Dell", " nb-010 ", EstadoEquipo.EN_MANTENCION))
+        assertNull(resultado { vm.agregar(TipoEquipo.NOTEBOOK, "Dell", " nb-010 ", EstadoEquipo.EN_MANTENCION, it) })
 
-        val nuevo = vm.equipos.value.last()
+        val nuevo = equiposEnBase().last()
         assertEquals("NB-010", nuevo.codigo)
         assertEquals("Dell", nuevo.marca)
         assertEquals(EstadoEquipo.EN_MANTENCION, nuevo.estado)
@@ -113,8 +137,11 @@ class InventarioTest {
         assertEquals("Ya existe un equipo con el código NB-001", vm.errorCodigo(TipoEquipo.NOTEBOOK, "nb-001"))
         assertNull(vm.errorCodigo(TipoEquipo.NOTEBOOK, "NB-004"))
 
-        assertEquals("Ya existe un equipo con el código NB-001", vm.agregar(TipoEquipo.NOTEBOOK, "Dell", "NB-001"))
-        assertEquals(3, vm.equipos.value.size)
+        assertEquals(
+            "Ya existe un equipo con el código NB-001",
+            resultado { vm.agregar(TipoEquipo.NOTEBOOK, "Dell", "NB-001", alTerminar = it) },
+        )
+        assertEquals(3, equiposEnBase().size)
     }
 
     @Test
@@ -122,38 +149,36 @@ class InventarioTest {
         val vm = vm()
         assertEquals(
             "Un equipo nuevo no puede entrar como prestado",
-            vm.agregar(TipoEquipo.NOTEBOOK, "Dell", "NB-004", EstadoEquipo.PRESTADO),
+            resultado { vm.agregar(TipoEquipo.NOTEBOOK, "Dell", "NB-004", EstadoEquipo.PRESTADO, it) },
         )
-        assertEquals(3, vm.equipos.value.size)
+        assertEquals(3, equiposEnBase().size)
     }
 
     // --- Marcar como dañado ---
 
     @Test
-    fun `marcar danado deja el equipo en mantencion y no se puede reservar`() {
-        val inventario = InventarioRepository(base)
-        val reservas = ReservaRepository(inventario, emptyList()) { hoy.atTime(8, 0) }
-        val vm = InventarioViewModel(inventario, reservas, hoy)
+    fun `marcar danado deja el equipo en mantencion y no se puede reservar`() = prueba {
+        val vm = vm()
+        val reservas = ReservaRepository(db) { hoy.atTime(8, 0) }
 
-        assertNull(vm.marcarDanado(1))
-        assertEquals(EstadoEquipo.EN_MANTENCION, inventario.equipos.value.first { it.id == 1 }.estado)
+        assertNull(resultado { vm.marcarDanado(1, it) })
+        assertEquals(EstadoEquipo.EN_MANTENCION, estadoDe(1))
 
-        val resultado = reservas.reservar(1, 101, "Prof. Rojas", "7°A", hoy, setOf(2))
-        assertTrue(resultado is ResultadoReserva.Error)
-        assertTrue(reservas.reservas.value.isEmpty())
+        val intento = reservas.reservar(1, 101, "Prof. Rojas", "7°A", hoy, setOf(2))
+        assertTrue(intento is ResultadoReserva.Error)
+        assertTrue(reservasEnBase().isEmpty())
     }
 
     @Test
-    fun `solo se marca danado un equipo disponible`() {
-        val inventario = InventarioRepository(base)
-        val vm = InventarioViewModel(inventario, ReservaRepository(inventario, emptyList()), hoy)
+    fun `solo se marca danado un equipo disponible`() = prueba {
+        val vm = vm()
         val error = "Solo se puede marcar como dañado un equipo disponible"
 
-        inventario.cambiarEstado(2, EstadoEquipo.PRESTADO)
-        assertEquals(error, vm.marcarDanado(2)) // prestado: se marca al devolverlo
-        assertNull(vm.marcarDanado(1))
-        assertEquals(error, vm.marcarDanado(1)) // ya en mantención
-        assertEquals(error, vm.marcarDanado(99)) // no existe
+        InventarioRepository(db).cambiarEstado(2, EstadoEquipo.PRESTADO)
+        assertEquals(error, resultado { vm.marcarDanado(2, it) }) // prestado: se marca al devolverlo
+        assertNull(resultado { vm.marcarDanado(1, it) })
+        assertEquals(error, resultado { vm.marcarDanado(1, it) }) // ya en mantención
+        assertEquals(error, resultado { vm.marcarDanado(99, it) }) // no existe
     }
 
     @Test
@@ -168,7 +193,7 @@ class InventarioTest {
                 reserva(4, 2, hoy), // otro equipo
             ),
         )
-        assertEquals(2, vm.reservasPendientes(1))
+        esperarQue { vm.reservasPendientes(1) == 2 }
         assertEquals(1, vm.reservasPendientes(2))
         assertEquals(0, vm.reservasPendientes(3))
     }

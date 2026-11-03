@@ -1,6 +1,5 @@
 package appmovil.prestaaula
 
-import appmovil.prestaaula.data.InventarioRepository
 import appmovil.prestaaula.model.Equipo
 import appmovil.prestaaula.model.EstadoDevolucion
 import appmovil.prestaaula.model.EstadoEquipo
@@ -99,15 +98,5 @@ class ReportesTest {
         assertEquals(listOf("NB-002"), lista.map { it.equipo.codigo })
         assertTrue(lista.single().enMantencion)
         assertFalse(lista.single().reincidente)
-    }
-
-    @Test
-    fun `solo un equipo en mantencion se puede marcar reparado`() {
-        val inventario = InventarioRepository(equipos)
-
-        assertFalse(inventario.marcarReparado(1)) // ya disponible
-        assertFalse(inventario.marcarReparado(99)) // no existe
-        assertTrue(inventario.marcarReparado(2))
-        assertEquals(EstadoEquipo.DISPONIBLE, inventario.equipos.value.first { it.id == 2 }.estado)
     }
 }

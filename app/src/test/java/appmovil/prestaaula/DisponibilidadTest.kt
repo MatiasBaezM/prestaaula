@@ -2,7 +2,6 @@ package appmovil.prestaaula
 
 import appmovil.prestaaula.data.InventarioRepository
 import appmovil.prestaaula.data.ReservaRepository
-import appmovil.prestaaula.data.ResultadoReserva
 import appmovil.prestaaula.model.Bloques
 import appmovil.prestaaula.model.Equipo
 import appmovil.prestaaula.model.EstadoEquipo
@@ -17,11 +16,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import java.time.DayOfWeek
 import java.time.LocalDate
 
-class DisponibilidadTest {
+class DisponibilidadTest : PruebaConBaseDeDatos() {
 
     private val hoy = LocalDate.of(2026, 10, 29) // jueves
     private val proyector = Equipo(1, "PY-001", TipoEquipo.PROYECTOR, "Epson")
@@ -68,17 +68,18 @@ class DisponibilidadTest {
         assertEquals(Ocupacion.Libre, ocupacionEnBloque(prestado, emptyList(), hoy.plusDays(1), 1, hoy))
     }
 
+    @Before
+    fun equipos() = guardar(equipos = listOf(proyector))
+
     // 07:00 por defecto: ningún bloque de hoy ha terminado y el resultado no depende de la hora real.
-    private fun vm(hoy: LocalDate, rol: Rol = Rol.DOCENTE, minutosAhora: Int = 7 * 60): DisponibilidadViewModel {
-        val inventario = InventarioRepository(listOf(proyector))
-        return DisponibilidadViewModel(
-            inventario,
-            ReservaRepository(inventario, emptyList()) { hoy.atTime(8, 0) },
+    private fun vm(hoy: LocalDate, rol: Rol = Rol.DOCENTE, minutosAhora: Int = 7 * 60) =
+        DisponibilidadViewModel(
+            InventarioRepository(db),
+            ReservaRepository(db) { hoy.atTime(8, 0) },
             Usuario(1, "Usuario", "u@x.cl", rol),
             hoy,
             minutosAhora,
         )
-    }
 
     @Test
     fun `viewmodel ofrece 7 dias habiles empezando hoy`() {
@@ -119,15 +120,25 @@ class DisponibilidadTest {
     @Test
     fun `un rol sin permiso no crea reservas aunque llame a reservar`() {
         val vm = vm(hoy, Rol.ENCARGADO_CRA)
-        assertEquals(ResultadoReserva.Error("Tu rol no puede reservar equipos"), vm.reservar(1, "7°A"))
-        assertTrue(vm.reservas.value.isEmpty())
+        assertEquals("Tu rol no puede reservar equipos", resultado { vm.reservar(1, "7°A", it) })
+        assertTrue(reservasEnBase().isEmpty())
     }
 
     @Test
     fun `el docente reserva el equipo libre del tramo elegido`() {
         val vm = vm(hoy)
         vm.alternarBloque(2)
-        assertTrue(vm.reservar(1, "7°A") is ResultadoReserva.Exito)
-        assertEquals(setOf(1, 2), vm.reservas.value.map { it.bloque }.toSet())
+        assertNull(resultado { vm.reservar(1, "7°A", it) })
+        assertEquals(setOf(1, 2), reservasEnBase().map { it.bloque }.toSet())
+        // La pantalla observa la tabla: la reserva nueva le llega sola.
+        esperarQue { vm.reservas.value.size == 2 }
+    }
+
+    @Test
+    fun `una reserva que choca muestra el error y no guarda nada`() {
+        val vm = vm(hoy)
+        assertNull(resultado { vm.reservar(1, "7°A", it) })
+        assertEquals("El equipo ya está reservado en el bloque 1", resultado { vm.reservar(1, "8°B", it) })
+        assertEquals(1, reservasEnBase().size)
     }
 }

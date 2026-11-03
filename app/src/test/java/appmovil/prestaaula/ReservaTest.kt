@@ -14,29 +14,30 @@ import appmovil.prestaaula.ui.disponibilidad.DisponibilidadViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-class ReservaTest {
+class ReservaTest : PruebaConBaseDeDatos() {
 
     // Jueves 29-oct-2026, 08:00 (bloque 1 en curso).
     private val ahora = LocalDateTime.of(2026, 10, 29, 8, 0)
     private val hoy = ahora.toLocalDate()
     private val manana = hoy.plusDays(1)
 
-    private val inventario = InventarioRepository(
-        listOf(
+    @Before
+    fun equipos() = guardar(
+        equipos = listOf(
             Equipo(1, "PY-001", TipoEquipo.PROYECTOR, "Epson"),
             Equipo(2, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo", EstadoEquipo.EN_MANTENCION),
             Equipo(3, "TB-001", TipoEquipo.TABLET, "Samsung", EstadoEquipo.PRESTADO),
         ),
     )
 
-    private fun repo(inicial: List<Reserva> = emptyList()) =
-        ReservaRepository(inventario, inicial) { ahora }
+    private fun repo() = ReservaRepository(db) { ahora }
 
-    private fun ReservaRepository.reservar(
+    private suspend fun ReservaRepository.reservar(
         equipoId: Int = 1, docenteId: Int = 1, curso: String = "7°A",
         fecha: LocalDate = manana, bloques: Set<Int> = setOf(2),
     ) = reservar(equipoId, docenteId, "Docente $docenteId", curso, fecha, bloques)
@@ -44,25 +45,24 @@ class ReservaTest {
     private fun ResultadoReserva.error() = (this as ResultadoReserva.Error).mensaje
 
     @Test
-    fun `reserva de varios bloques seguidos crea una reserva por bloque`() {
-        val r = repo()
-        val res = r.reservar(bloques = setOf(2, 3, 4)) as ResultadoReserva.Exito
+    fun `reserva de varios bloques seguidos crea una reserva por bloque`() = prueba {
+        val res = repo().reservar(bloques = setOf(2, 3, 4)) as ResultadoReserva.Exito
 
         assertEquals(listOf(2, 3, 4), res.reservas.map { it.bloque })
-        assertEquals(3, r.reservas.value.size)
+        assertEquals(res.reservas, reservasEnBase()) // guardadas con los ids que asignó SQLite
     }
 
     @Test
-    fun `no permite choque en el mismo equipo, dia y bloque`() {
+    fun `no permite choque en el mismo equipo, dia y bloque`() = prueba {
         val r = repo()
         r.reservar(docenteId = 1, bloques = setOf(2, 3))
 
         assertEquals("El equipo ya está reservado en el bloque 3", r.reservar(docenteId = 2, bloques = setOf(3, 4)).error())
-        assertEquals(2, r.reservas.value.size) // nada se guardó
+        assertEquals(2, reservasEnBase().size) // nada se guardó
     }
 
     @Test
-    fun `mismo bloque en otro dia o en otro equipo no choca`() {
+    fun `mismo bloque en otro dia o en otro equipo no choca`() = prueba {
         val r = repo()
         r.reservar(bloques = setOf(2))
         assertTrue(r.reservar(fecha = manana.plusDays(1), bloques = setOf(2)) is ResultadoReserva.Exito)
@@ -70,7 +70,7 @@ class ReservaTest {
     }
 
     @Test
-    fun `bloques no seguidos o vacios se rechazan`() {
+    fun `bloques no seguidos o vacios se rechazan`() = prueba {
         val r = repo()
         assertEquals("Los bloques deben ser seguidos", r.reservar(bloques = setOf(1, 3)).error())
         assertEquals("Elige al menos un bloque", r.reservar(bloques = emptySet()).error())
@@ -78,12 +78,17 @@ class ReservaTest {
     }
 
     @Test
-    fun `curso vacio se rechaza`() {
+    fun `curso vacio se rechaza`() = prueba {
         assertEquals("Ingresa el curso", repo().reservar(curso = "  ").error())
     }
 
     @Test
-    fun `equipo en mantencion o prestado hoy no se puede reservar`() {
+    fun `equipo inexistente se rechaza`() = prueba {
+        assertEquals("El equipo no existe", repo().reservar(equipoId = 99).error())
+    }
+
+    @Test
+    fun `equipo en mantencion o prestado hoy no se puede reservar`() = prueba {
         val r = repo()
         assertEquals("El equipo está en mantención", r.reservar(equipoId = 2).error())
         assertEquals("El equipo está prestado en este momento", r.reservar(equipoId = 3, fecha = hoy, bloques = setOf(2)).error())
@@ -91,9 +96,9 @@ class ReservaTest {
     }
 
     @Test
-    fun `no se reserva en el pasado ni en bloques ya terminados`() {
+    fun `no se reserva en el pasado ni en bloques ya terminados`() = prueba {
         val tarde = LocalDateTime.of(2026, 10, 29, 10, 0) // bloque 3 en curso
-        val r = ReservaRepository(inventario, emptyList()) { tarde }
+        val r = ReservaRepository(db) { tarde }
 
         assertEquals("No puedes reservar en una fecha pasada", r.reservar(fecha = hoy.minusDays(1)).error())
         assertEquals("Uno de los bloques elegidos ya terminó", r.reservar(fecha = hoy, bloques = setOf(1, 2)).error())
@@ -101,15 +106,15 @@ class ReservaTest {
     }
 
     @Test
-    fun `solo el dueno puede cancelar y se libera el horario`() {
+    fun `solo el dueno puede cancelar y se libera el horario`() = prueba {
         val r = repo()
         val ids = (r.reservar(docenteId = 1, bloques = setOf(2, 3)) as ResultadoReserva.Exito).reservas.map { it.id }
 
         assertFalse(r.cancelar(ids, docenteId = 2))
-        assertEquals(2, r.reservas.value.size)
+        assertEquals(2, reservasEnBase().size)
 
         assertTrue(r.cancelar(ids, docenteId = 1))
-        assertTrue(r.reservas.value.isEmpty())
+        assertTrue(reservasEnBase().isEmpty())
         assertTrue(r.reservar(docenteId = 2, bloques = setOf(2, 3)) is ResultadoReserva.Exito)
     }
 
@@ -150,7 +155,7 @@ class ReservaTest {
 
     // Hora fija: el resultado no depende de a qué hora se corran los tests.
     private fun vmReservar(minutosAhora: Int) = DisponibilidadViewModel(
-        inventario, repo(), Usuario(1, "Docente", "d@x.cl", Rol.DOCENTE), hoy, minutosAhora,
+        InventarioRepository(db), repo(), Usuario(1, "Docente", "d@x.cl", Rol.DOCENTE), hoy, minutosAhora,
     )
 
     @Test
