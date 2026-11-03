@@ -51,7 +51,7 @@ Reglas de negocio principales:
 | Validaciones desacopladas de la UI | `model/Validaciones.kt` (lógica pura); usada por los `ViewModel` |
 | Navegación funcional | `ui/navigation/AppNavHost.kt` (Navigation Compose, con guardia de acceso por rol) |
 | Gestión de estado | `ViewModel` + `StateFlow` en cada pantalla |
-| Almacenamiento local | JSON en el almacenamiento privado de la app (`data/Persistencia.kt`) |
+| Almacenamiento local | SQLite con Room: tablas en `data/db/Entidades.kt`, DAOs `EquipoDao`, `ReservaDao` y `PrestamoDao`, base `data/db/PrestaAulaDb.kt` |
 | Recursos nativos (2) | **Cámara** (foto del equipo al devolverlo, `ui/components/Fotos.kt`) y **vibración** (confirmaciones y errores, `ui/components/Vibracion.kt`) |
 | Animaciones | Transiciones entre pantallas, sacudida del campo inválido, mensajes de error animados, cambio de color de etiquetas, movimiento de ítems en listas |
 
@@ -62,25 +62,51 @@ Reglas de negocio principales:
 
 ## Arquitectura
 
-MVVM con repositorios compartidos como única fuente de verdad.
+MVVM: la base de datos SQLite (Room) es la única fuente de verdad y los datos fluyen en una sola dirección.
+
+```
+Screen (Compose) ──evento──▶ ViewModel ──llama──▶ Repository ──▶ DAO ──▶ SQLite (Room)
+       ▲                         │                                          │
+       └──── StateFlow ◀── stateIn(viewModelScope) ◀──── Flow ◀─────────────┘
+```
 
 ```
 app/src/main/java/appmovil/prestaaula/
-├── model/        Dominio puro: Equipo, Reserva, Prestamo, Rol, Bloques, Validaciones…
-├── data/         Repositorios (inventario, reservas, préstamos, autenticación) y persistencia JSON
+├── model/        Model: dominio y reglas puras (Equipo, Reserva, Prestamo, Rol, Bloques, Validaciones…)
+├── data/
+│   ├── db/           Room: entidades (tablas), DAOs, convertidores de fecha y PrestaAulaDb
+│   ├── InventarioRepository, ReservaRepository, PrestamoRepository   Repository
+│   ├── AuthRepository, Docentes    Login y nómina de demostración
+│   └── DatosDemo     Datos de ejemplo que se guardan la primera vez
 ├── ui/
 │   ├── theme/        Tema Material 3
 │   ├── components/   CampoValidado, Etiqueta, Fotos, Vibracion…
 │   ├── navigation/   AppNavHost
+│   ├── Operaciones.kt  ejecutar(): lanza una operación de la base en viewModelScope
 │   ├── login/ home/ inventario/ disponibilidad/ reservas/ prestamos/ reportes/
 │   └── (cada carpeta: Screen + ViewModel)
-├── PrestaAulaApp.kt  Crea los repositorios y guarda los cambios en disco
+├── PrestaAulaApp.kt  Crea la base de datos y los repositorios (inyección manual de dependencias)
 └── MainActivity.kt
 ```
 
-- Los `ViewModel` no conocen Android: reciben repositorios por constructor, lo que permite probarlos en JVM.
+Responsabilidades:
+
+- **Model** (`model/`): datos del dominio y reglas puras (validaciones, ocupación de bloques, reportes). No depende de Android ni de Room.
+- **DAO** (`data/db/*Dao.kt`): consultas SQL. `@Insert` inserta, `@Update` actualiza y `@Query` recupera o borra. Las lecturas que muestra la UI devuelven `Flow`, que vuelve a emitir cada vez que la tabla cambia.
+- **Repository** (`data/*Repository.kt`): única puerta de los ViewModels a los datos. Traduce filas de Room al modelo y aplica las reglas de negocio. Cada operación (reservar, prestar, devolver…) valida y guarda en **una sola transacción** (`withTransaction`): si algo falla, SQLite revierte todo.
+- **ViewModel** (`ui/*/…ViewModel.kt`): convierte los `Flow` del repositorio en `StateFlow` (`stateIn`) y lanza las acciones con `viewModelScope.launch`, para que una operación no se corte al rotar la pantalla. Avisa el resultado (`null` = guardado, o el mensaje de error).
+- **Screen** (`ui/*/…Screen.kt`): observa el estado con `collectAsStateWithLifecycle()` y envía los eventos del usuario al ViewModel. No contiene lógica de negocio.
+
+Además:
+
+- La base aplica integridad por su cuenta: claves foráneas (una reserva o préstamo debe apuntar a un equipo existente) y código de equipo único.
 - El login depende de la interfaz `Autenticador`, de modo que la validación local de demostración se puede reemplazar por una API REST sin tocar la UI.
-- `PrestaAulaApp` guarda inventario, reservas y préstamos **juntos** ante cualquier cambio, para que en disco nunca queden versiones inconsistentes.
+
+### Persistencia: cómo probarla
+
+1. Iniciar sesión como Encargado CRA, abrir **Inventario** y marcar un equipo como dañado (o agregar uno).
+2. Cerrar la app por completo (quitarla de recientes) y volver a abrirla.
+3. El cambio sigue ahí: se leyó de la base SQLite `prestaaula.db`.
 
 ## Cómo ejecutar
 
@@ -116,11 +142,11 @@ El correo no distingue mayúsculas ni espacios en los extremos; la contraseña s
 ## Pruebas
 
 ```
-gradlew :app:testDebugUnitTest            # unitarias (JVM)
-gradlew :app:connectedDebugAndroidTest    # de interfaz, con emulador abierto
+gradlew :app:testDebugUnitTest            # unitarias (JVM, con Room en memoria vía Robolectric)
+gradlew :app:connectedDebugAndroidTest    # DAOs en SQLite real e interfaz, con emulador abierto
 ```
 
-Cubren validaciones, repositorios, reglas de reserva y préstamo, persistencia, ViewModels y el flujo de cada rol.
+Cubren validaciones, DAOs, repositorios contra la base real, reglas de reserva y préstamo, transacciones, ViewModels y el flujo de cada rol.
 
 ## Seguridad
 
@@ -131,4 +157,4 @@ Cubren validaciones, repositorios, reglas de reserva y préstamo, persistencia, 
 
 ## Tecnologías
 
-Kotlin · Jetpack Compose · Material 3 · Navigation Compose · ViewModel / StateFlow · `org.json` para persistencia · Gradle (Kotlin DSL).
+Kotlin · Jetpack Compose · Material 3 · Navigation Compose · ViewModel / StateFlow · Corrutinas · Room (SQLite) · Gradle (Kotlin DSL).
