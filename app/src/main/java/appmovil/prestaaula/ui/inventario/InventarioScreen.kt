@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -65,19 +66,23 @@ fun InventarioScreen(vm: InventarioViewModel, onVolver: () -> Unit) {
     val filtro by vm.filtroTipo.collectAsStateWithLifecycle()
     val vibrador = rememberVibrador()
     // Un pulso confirma la acción; dos avisan que no se pudo (misma convención que el resto de la app).
-    fun conVibracion(error: String?): String? {
+    fun conVibracion(error: String?) {
         if (error == null) vibrador.exito() else vibrador.error()
-        return error
     }
     InventarioContenido(
         equipos = equipos,
         filtro = filtro,
         onFiltrar = vm::filtrarPor,
-        onAgregar = { tipo, marca, codigo, estado -> conVibracion(vm.agregar(tipo, marca, codigo, estado)) },
+        onAgregar = { tipo, marca, codigo, estado, alTerminar ->
+            vm.agregar(tipo, marca, codigo, estado) { error ->
+                conVibracion(error)
+                alTerminar(error)
+            }
+        },
         codigoSugerido = vm::codigoSugerido,
         errorCodigo = vm::errorCodigo,
         reservasPendientes = vm::reservasPendientes,
-        onMarcarDanado = { id -> conVibracion(vm.marcarDanado(id)) },
+        onMarcarDanado = { id -> vm.marcarDanado(id, ::conVibracion) },
         onVolver = onVolver,
     )
 }
@@ -88,11 +93,12 @@ private fun InventarioContenido(
     equipos: List<Equipo>,
     filtro: TipoEquipo?,
     onFiltrar: (TipoEquipo?) -> Unit,
-    onAgregar: (TipoEquipo, String, String, EstadoEquipo) -> String?,
+    // El último parámetro recibe el resultado cuando termina de guardarse: null = guardado, o el error.
+    onAgregar: (TipoEquipo, String, String, EstadoEquipo, (String?) -> Unit) -> Unit,
     codigoSugerido: (TipoEquipo) -> String,
     errorCodigo: (TipoEquipo, String) -> String?,
     reservasPendientes: (Int) -> Int,
-    onMarcarDanado: (Int) -> String?,
+    onMarcarDanado: (Int) -> Unit,
     onVolver: () -> Unit,
 ) {
     var mostrarDialogo by rememberSaveable { mutableStateOf(false) }
@@ -250,7 +256,7 @@ private fun EstadoChip(estado: EstadoEquipo) {
 // Todos los datos de un equipo según el caso: tipo, marca, número de identificación interno y estado.
 @Composable
 private fun AgregarEquipoDialogo(
-    onGuardar: (TipoEquipo, String, String, EstadoEquipo) -> String?,
+    onGuardar: (TipoEquipo, String, String, EstadoEquipo, (String?) -> Unit) -> Unit,
     codigoSugerido: (TipoEquipo) -> String,
     errorCodigo: (TipoEquipo, String) -> String?,
     onCerrar: () -> Unit,
@@ -263,6 +269,8 @@ private fun AgregarEquipoDialogo(
     val codigo = codigoEscrito ?: codigoSugerido(tipo)
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var intentos by rememberSaveable { mutableIntStateOf(0) }
+    // Mientras se guarda, el botón queda deshabilitado: un doble toque no agrega el equipo dos veces.
+    var guardando by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onCerrar,
@@ -310,13 +318,20 @@ private fun AgregarEquipoDialogo(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                intentos++
-                if (Validaciones.marca(marca) == null && errorCodigo(tipo, codigo) == null) {
-                    error = onGuardar(tipo, marca, codigo, estado)
-                    if (error == null) onCerrar()
-                }
-            }) { Text("Guardar") }
+            TextButton(
+                enabled = !guardando,
+                onClick = {
+                    intentos++
+                    if (Validaciones.marca(marca) == null && errorCodigo(tipo, codigo) == null) {
+                        guardando = true
+                        onGuardar(tipo, marca, codigo, estado) { resultado ->
+                            guardando = false
+                            error = resultado
+                            if (resultado == null) onCerrar()
+                        }
+                    }
+                },
+            ) { Text(if (guardando) "Guardando…" else "Guardar") }
         },
         dismissButton = { TextButton(onClick = onCerrar) { Text("Cancelar") } },
     )
@@ -334,11 +349,11 @@ private fun InventarioPreview() {
             ),
             filtro = null,
             onFiltrar = {},
-            onAgregar = { _, _, _, _ -> null },
+            onAgregar = { _, _, _, _, listo -> listo(null) },
             codigoSugerido = { "NB-002" },
             errorCodigo = { _, _ -> null },
             reservasPendientes = { 0 },
-            onMarcarDanado = { null },
+            onMarcarDanado = {},
             onVolver = {},
         )
     }

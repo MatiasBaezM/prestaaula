@@ -1,79 +1,63 @@
 package appmovil.prestaaula.data
 
+import androidx.room.withTransaction
+import appmovil.prestaaula.data.db.PrestaAulaDb
+import appmovil.prestaaula.data.db.aEntidad
+import appmovil.prestaaula.data.db.aModelo
 import appmovil.prestaaula.model.Equipo
 import appmovil.prestaaula.model.EstadoEquipo
 import appmovil.prestaaula.model.TipoEquipo
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import appmovil.prestaaula.model.siguienteCodigo
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 
-// Fuente única del inventario en memoria; PrestaAulaApp la persiste en Room (SQLite)
-// al detectar cambios, sin que préstamos y reservas dependan de la base de datos.
-class InventarioRepository(inicial: List<Equipo> = equiposDemo()) {
+// Repositorio del inventario: única puerta de los ViewModels a la tabla "equipos".
+// Traduce entre filas de Room (EquipoEntity) y el modelo (Equipo), y aplica las reglas del inventario.
+class InventarioRepository(private val db: PrestaAulaDb) {
 
-    private val _equipos = MutableStateFlow(inicial)
-    val equipos: StateFlow<List<Equipo>> = _equipos.asStateFlow()
+    private val dao = db.equipoDao()
 
-    // Siguiente al mayor número usado (no "cantidad + 1"), para no repetir un código existente.
-    fun siguienteCodigo(tipo: TipoEquipo): String = siguienteCodigo(_equipos.value, tipo)
+    // Se actualiza solo cada vez que cambia la tabla.
+    val equipos: Flow<List<Equipo>> = dao.observarTodos().map { filas -> filas.map { it.aModelo() } }
 
     // `codigo` null = asignarlo automáticamente. El estado inicial es Disponible o En mantención.
-    fun agregar(
+    // Devuelve el equipo guardado (con el id que le dio SQLite), o null si el código ya existe.
+    // Lee y escribe en la misma transacción: dos altas seguidas no pueden tomar el mismo código.
+    suspend fun agregar(
         tipo: TipoEquipo,
         marca: String,
         codigo: String? = null,
         estado: EstadoEquipo = EstadoEquipo.DISPONIBLE,
-    ): Equipo {
-        lateinit var nuevo: Equipo
-        _equipos.update { lista ->
-            nuevo = Equipo(
-                id = (lista.maxOfOrNull { it.id } ?: 0) + 1,
-                codigo = codigo?.trim()?.uppercase() ?: siguienteCodigo(lista, tipo),
-                tipo = tipo,
-                marca = marca.trim(),
-                estado = estado,
-            )
-            lista + nuevo
-        }
-        return nuevo
+    ): Equipo? = db.withTransaction {
+        val actuales = dao.obtenerTodos().map { it.aModelo() }
+        val nuevo = Equipo(
+            id = 0, // lo asigna SQLite
+            codigo = codigo?.trim()?.uppercase() ?: siguienteCodigo(actuales, tipo),
+            tipo = tipo,
+            marca = marca.trim(),
+            estado = estado,
+        )
+        if (actuales.any { it.codigo == nuevo.codigo }) return@withTransaction null
+        val id = dao.insertar(nuevo.aEntidad())
+        nuevo.copy(id = id.toInt())
     }
 
     // El CRA saca de circulación un equipo dañado: deja de poder reservarse y prestarse hasta repararlo.
     // Solo aplica a un equipo Disponible; uno prestado se marca al devolverlo, con sus observaciones.
-    fun marcarDanado(id: Int): Boolean {
-        if (_equipos.value.none { it.id == id && it.estado == EstadoEquipo.DISPONIBLE }) return false
-        cambiarEstado(id, EstadoEquipo.EN_MANTENCION)
-        return true
-    }
+    suspend fun marcarDanado(id: Int): Boolean =
+        cambiarSiEsta(id, desde = EstadoEquipo.DISPONIBLE, hacia = EstadoEquipo.EN_MANTENCION)
 
     // Cierra una mantención: solo aplica a equipos que están en mantención.
-    fun marcarReparado(id: Int): Boolean {
-        if (_equipos.value.none { it.id == id && it.estado == EstadoEquipo.EN_MANTENCION }) return false
-        cambiarEstado(id, EstadoEquipo.DISPONIBLE)
-        return true
-    }
+    suspend fun marcarReparado(id: Int): Boolean =
+        cambiarSiEsta(id, desde = EstadoEquipo.EN_MANTENCION, hacia = EstadoEquipo.DISPONIBLE)
 
-    fun cambiarEstado(id: Int, estado: EstadoEquipo) {
-        _equipos.update { lista -> lista.map { if (it.id == id) it.copy(estado = estado) else it } }
-    }
+    suspend fun cambiarEstado(id: Int, estado: EstadoEquipo) = dao.cambiarEstado(id, estado)
+
+    private suspend fun cambiarSiEsta(id: Int, desde: EstadoEquipo, hacia: EstadoEquipo): Boolean =
+        db.withTransaction {
+            val equipo = dao.obtener(id)
+            if (equipo == null || equipo.estado != desde) return@withTransaction false
+            dao.actualizar(equipo.copy(estado = hacia))
+            true
+        }
 }
-
-private fun siguienteCodigo(lista: List<Equipo>, tipo: TipoEquipo): String {
-    val numero = (lista.filter { it.tipo == tipo }
-        .mapNotNull { it.codigo.substringAfter('-').toIntOrNull() }
-        .maxOrNull() ?: 0) + 1
-    return "%s-%03d".format(tipo.prefijo, numero)
-}
-
-private fun equiposDemo(): List<Equipo> = listOf(
-    Equipo(1, "NB-001", TipoEquipo.NOTEBOOK, "Lenovo"),
-    Equipo(2, "NB-002", TipoEquipo.NOTEBOOK, "HP"),
-    Equipo(3, "NB-003", TipoEquipo.NOTEBOOK, "Acer", EstadoEquipo.EN_MANTENCION),
-    Equipo(4, "TB-001", TipoEquipo.TABLET, "Samsung"),
-    Equipo(5, "TB-002", TipoEquipo.TABLET, "Samsung", EstadoEquipo.PRESTADO),
-    Equipo(6, "PY-001", TipoEquipo.PROYECTOR, "Epson"),
-    Equipo(7, "PY-002", TipoEquipo.PROYECTOR, "BenQ"),
-    Equipo(8, "HD-001", TipoEquipo.CABLE_HDMI, "Genérico"),
-    Equipo(9, "HD-002", TipoEquipo.CABLE_HDMI, "Genérico"),
-)

@@ -2,24 +2,22 @@ package appmovil.prestaaula
 
 import android.app.Application
 import android.util.Log
+import appmovil.prestaaula.data.DatosDemo
 import appmovil.prestaaula.data.InventarioRepository
 import appmovil.prestaaula.data.PrestamoRepository
 import appmovil.prestaaula.data.ReservaRepository
-import appmovil.prestaaula.data.db.Instantanea
 import appmovil.prestaaula.data.db.PrestaAulaDb
-import appmovil.prestaaula.data.db.sincronizar
-import appmovil.prestaaula.data.db.aEntidad
-import appmovil.prestaaula.data.db.aModelo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
+// Contenedor de dependencias de la app: crea una sola base de datos y un solo repositorio de cada
+// tipo, que comparten todas las pantallas (misma fuente de verdad). Los ViewModels los reciben por
+// constructor (ver vmDeApp en AppNavHost).
 class PrestaAulaApp : Application() {
-    // Repositorios compartidos por todas las pantallas (misma fuente de verdad).
+    lateinit var db: PrestaAulaDb
+        private set
     lateinit var inventario: InventarioRepository
         private set
     lateinit var reservas: ReservaRepository
@@ -31,56 +29,19 @@ class PrestaAulaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val dao = PrestaAulaDb.crear(this).almacen()
+        db = PrestaAulaDb.crear(this)
+        inventario = InventarioRepository(db)
+        reservas = ReservaRepository(db)
+        prestamos = PrestamoRepository(db)
 
-        // Lectura única al arrancar (son pocas filas). Sin equipos guardados (primera vez, o BD
-        // ilegible) cada repositorio parte con sus datos de ejemplo, en vez de caerse.
-        // Las fechas y enums se convierten al leer (Room + Convertidores), dentro del try: una fila
-        // corrupta no debe tirar la app al abrir.
-        val leida = try {
-            runBlocking(Dispatchers.IO) {
-                Instantanea(dao.equipos(), dao.reservas(), dao.prestamos())
-            }
-        } catch (e: Exception) {
-            Log.w("PrestaAula", "No se pudo leer la base de datos", e)
-            null
-        }
-
-        // Lo que hay en disco ahora mismo, o null si hay que reescribir todo en el primer guardado.
-        var enDisco: Instantanea?
-        if (leida != null && leida.equipos.isNotEmpty()) {
-            inventario = InventarioRepository(leida.equipos.map { it.aModelo() })
-            reservas = ReservaRepository(inventario, leida.reservas.map { it.aModelo() })
-            prestamos = PrestamoRepository(inventario, reservas, leida.prestamos.map { it.aModelo() })
-            enDisco = leida
-        } else {
-            inventario = InventarioRepository()
-            reservas = ReservaRepository(inventario)
-            prestamos = PrestamoRepository(inventario, reservas)
-            enDisco = null
-        }
-
-        // Ante cualquier cambio se escribe en una transacción solo lo que cambió respecto del disco.
-        // drop(1): lo inicial no se escribe, así los datos de ejemplo siguen relativos a "hoy"
-        // hasta el primer cambio real. El collect es secuencial: enDisco no tiene carreras.
+        // Primera vez: se guardan los datos de ejemplo en segundo plano. Las pantallas observan la base,
+        // así que se actualizan solas apenas terminan de guardarse.
         scope.launch {
-            combine(inventario.equipos, reservas.reservas, prestamos.prestamos, ::Triple)
-                .drop(1)
-                .collect { (equipos, listaReservas, listaPrestamos) ->
-                    val nueva = Instantanea(
-                        equipos.map { it.aEntidad() },
-                        listaReservas.map { it.aEntidad() },
-                        listaPrestamos.map { it.aEntidad() },
-                    )
-                    try {
-                        dao.sincronizar(enDisco, nueva)
-                        enDisco = nueva
-                    } catch (e: Exception) {
-                        // Sin espacio u otro error de disco: la transacción se revirtió, enDisco sigue
-                        // valiendo y el próximo cambio reintenta también lo que faltó. No cierra la app.
-                        Log.w("PrestaAula", "No se pudieron guardar los datos", e)
-                    }
-                }
+            try {
+                DatosDemo.cargarSiEstaVacia(db)
+            } catch (e: Exception) {
+                Log.w("PrestaAula", "No se pudieron cargar los datos de ejemplo", e)
+            }
         }
     }
 }

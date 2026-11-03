@@ -82,8 +82,8 @@ fun RetiroDevolucionScreen(vm: RetiroDevolucionViewModel, onVolver: () -> Unit) 
                             prestamo = p,
                             equipo = equipos.firstOrNull { it.id == p.equipoId },
                             hoy = vm.hoy,
-                            onConfirmarRetiro = { if (vm.confirmarRetiro(p.id)) vibrador.exito() else vibrador.error() },
-                            onAvisarDevolucion = { if (vm.avisarDevolucion(p.id)) vibrador.exito() else vibrador.error() },
+                            onConfirmarRetiro = { vm.confirmarRetiro(p.id) { if (it == null) vibrador.exito() else vibrador.error() } },
+                            onAvisarDevolucion = { vm.avisarDevolucion(p.id) { if (it == null) vibrador.exito() else vibrador.error() } },
                         )
                     }
                 }

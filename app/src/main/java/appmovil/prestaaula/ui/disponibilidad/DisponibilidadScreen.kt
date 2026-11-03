@@ -43,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import appmovil.prestaaula.data.ResultadoReserva
 import appmovil.prestaaula.model.Bloques
 import appmovil.prestaaula.model.Equipo
 import appmovil.prestaaula.model.Ocupacion
@@ -162,14 +161,17 @@ fun DisponibilidadScreen(vm: DisponibilidadViewModel, onVolver: () -> Unit) {
         ConfirmarReservaDialogo(
             equipo = equipoElegido,
             resumen = "${fechaLarga(fecha)}\n${Bloques.etiquetaRango(desde, hasta)}",
-            onConfirmar = { curso ->
-                val resultado = vm.reservar(equipoElegido.id, curso)
-                if (resultado is ResultadoReserva.Exito) {
-                    vibrador.exito()
-                    equipoElegidoId = null
-                    scope.launch { snackbar.showSnackbar("Reserva confirmada: ${equipoElegido.codigo}") }
+            onConfirmar = { curso, alTerminar ->
+                vm.reservar(equipoElegido.id, curso) { error ->
+                    alTerminar(error)
+                    if (error == null) {
+                        vibrador.exito()
+                        equipoElegidoId = null
+                        scope.launch { snackbar.showSnackbar("Reserva confirmada: ${equipoElegido.codigo}") }
+                    } else {
+                        vibrador.error()
+                    }
                 }
-                (resultado as? ResultadoReserva.Error)?.mensaje?.also { vibrador.error() }
             },
             onCerrar = { equipoElegidoId = null },
         )
@@ -219,12 +221,14 @@ private fun FilaDisponibilidad(equipo: Equipo, ocupacion: Ocupacion, reservable:
 private fun ConfirmarReservaDialogo(
     equipo: Equipo,
     resumen: String,
-    onConfirmar: (String) -> String?,
+    // El segundo parámetro recibe el resultado cuando termina de guardarse: null = guardado, o el error.
+    onConfirmar: (String, (String?) -> Unit) -> Unit,
     onCerrar: () -> Unit,
 ) {
     var curso by rememberSaveable { mutableStateOf("") }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var intentos by rememberSaveable { mutableIntStateOf(0) }
+    var guardando by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onCerrar,
@@ -248,10 +252,19 @@ private fun ConfirmarReservaDialogo(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                intentos++
-                if (Validaciones.curso(curso) == null) error = onConfirmar(curso)
-            }) { Text("Confirmar") }
+            TextButton(
+                enabled = !guardando,
+                onClick = {
+                    intentos++
+                    if (Validaciones.curso(curso) == null) {
+                        guardando = true
+                        onConfirmar(curso) { resultado ->
+                            guardando = false
+                            error = resultado
+                        }
+                    }
+                },
+            ) { Text(if (guardando) "Reservando…" else "Confirmar") }
         },
         dismissButton = { TextButton(onClick = onCerrar) { Text("Cancelar") } },
     )

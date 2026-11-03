@@ -14,13 +14,15 @@ import appmovil.prestaaula.model.TipoEquipo
 import java.time.LocalDate
 import java.time.LocalDateTime
 
-// Filas de SQLite, separadas del modelo de dominio para que este no dependa de Room.
-// En disco, los enums quedan por nombre (conversión que Room trae incluida) y las fechas en
-// texto ISO-8601 (Convertidores), igual que antes: el esquema no cambia.
+// Tablas de SQLite (una data class por tabla), separadas del modelo de dominio para que este no
+// dependa de Room. En disco, los enums quedan por nombre (conversión que Room trae incluida) y las
+// fechas en texto ISO-8601 (Convertidores).
+// autoGenerate: al insertar una fila con id = 0, SQLite le asigna el siguiente id libre.
 
-@Entity(tableName = "equipos")
+// El código interno (NB-001…) es único: SQLite rechaza dos equipos con el mismo.
+@Entity(tableName = "equipos", indices = [Index(value = ["codigo"], unique = true)])
 data class EquipoEntity(
-    @PrimaryKey val id: Int,
+    @PrimaryKey(autoGenerate = true) val id: Int,
     val codigo: String,
     val tipo: TipoEquipo,
     val marca: String,
@@ -43,7 +45,7 @@ data class EquipoEntity(
     indices = [Index("equipoId")],
 )
 data class ReservaEntity(
-    @PrimaryKey val id: Int,
+    @PrimaryKey(autoGenerate = true) val id: Int,
     val equipoId: Int,
     val docenteId: Int,
     val docente: String,
@@ -65,7 +67,7 @@ data class ReservaEntity(
     indices = [Index("equipoId")],
 )
 data class PrestamoEntity(
-    @PrimaryKey val id: Int,
+    @PrimaryKey(autoGenerate = true) val id: Int,
     val equipoId: Int,
     val docenteId: Int,
     val docente: String,

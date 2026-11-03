@@ -149,17 +149,18 @@ fun RegistrarPrestamoScreen(vm: RegistrarPrestamoViewModel, onVolver: () -> Unit
             docentes = vm.docentes.map { it.id to it.nombre },
             docenteInicial = reserva?.docenteId,
             cursoInicial = reserva?.curso.orEmpty(),
-            onEntregar = { docenteId, curso ->
+            onEntregar = { docenteId, curso, alTerminar ->
                 val docente = vm.docentes.first { it.id == docenteId }
-                val error = vm.registrar(equipoElegido.id, docente, curso)
-                if (error == null) {
-                    vibrador.exito()
-                    equipoElegidoId = null
-                    scope.launch { snackbar.showSnackbar("Entregado: ${equipoElegido.codigo} → ${docente.nombre}") }
-                } else {
-                    vibrador.error()
+                vm.registrar(equipoElegido.id, docente, curso) { error ->
+                    alTerminar(error)
+                    if (error == null) {
+                        vibrador.exito()
+                        equipoElegidoId = null
+                        scope.launch { snackbar.showSnackbar("Entregado: ${equipoElegido.codigo} → ${docente.nombre}") }
+                    } else {
+                        vibrador.error()
+                    }
                 }
-                error
             },
             onCerrar = { equipoElegidoId = null },
         )
@@ -173,13 +174,15 @@ private fun EntregarDialogo(
     docentes: List<Pair<Int, String>>,
     docenteInicial: Int?,
     cursoInicial: String,
-    onEntregar: (docenteId: Int, curso: String) -> String?,
+    // alTerminar recibe el resultado cuando termina de guardarse: null = guardado, o el error.
+    onEntregar: (docenteId: Int, curso: String, alTerminar: (String?) -> Unit) -> Unit,
     onCerrar: () -> Unit,
 ) {
     var docenteId by rememberSaveable { mutableStateOf(docenteInicial ?: docentes.first().first) }
     var curso by rememberSaveable { mutableStateOf(cursoInicial) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
     var intentos by rememberSaveable { mutableIntStateOf(0) }
+    var guardando by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onCerrar,
@@ -215,10 +218,19 @@ private fun EntregarDialogo(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                intentos++
-                if (Validaciones.curso(curso) == null) error = onEntregar(docenteId, curso)
-            }) { Text("Entregar") }
+            TextButton(
+                enabled = !guardando,
+                onClick = {
+                    intentos++
+                    if (Validaciones.curso(curso) == null) {
+                        guardando = true
+                        onEntregar(docenteId, curso) { resultado ->
+                            guardando = false
+                            error = resultado
+                        }
+                    }
+                },
+            ) { Text(if (guardando) "Entregando…" else "Entregar") }
         },
         dismissButton = { TextButton(onClick = onCerrar) { Text("Cancelar") } },
     )

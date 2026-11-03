@@ -131,17 +131,18 @@ fun RegistrarDevolucionScreen(vm: RegistrarDevolucionViewModel, onVolver: () -> 
         RecibirDialogo(
             equipo = equipoElegido,
             prestamo = elegido,
-            onRecibir = { estado, obs, foto ->
-                val error = vm.recibir(elegido.id, estado, obs, foto)
-                if (error == null) {
-                    vibrador.exito()
-                    elegidoId = null
-                    val destino = if (estado == EstadoDevolucion.BUEN_ESTADO) "disponible" else "en mantención"
-                    scope.launch { snackbar.showSnackbar("${equipoElegido.codigo} recibido: queda $destino") }
-                } else {
-                    vibrador.error()
+            onRecibir = { estado, obs, foto, alTerminar ->
+                vm.recibir(elegido.id, estado, obs, foto) { error ->
+                    alTerminar(error)
+                    if (error == null) {
+                        vibrador.exito()
+                        elegidoId = null
+                        val destino = if (estado == EstadoDevolucion.BUEN_ESTADO) "disponible" else "en mantención"
+                        scope.launch { snackbar.showSnackbar("${equipoElegido.codigo} recibido: queda $destino") }
+                    } else {
+                        vibrador.error()
+                    }
                 }
-                error
             },
             onCerrar = { elegidoId = null },
         )
@@ -187,7 +188,8 @@ private fun TarjetaPrestamo(
 private fun RecibirDialogo(
     equipo: Equipo,
     prestamo: Prestamo,
-    onRecibir: (EstadoDevolucion, String, String?) -> String?,
+    // El último parámetro recibe el resultado cuando termina de guardarse: null = guardado, o el error.
+    onRecibir: (EstadoDevolucion, String, String?, (String?) -> Unit) -> Unit,
     onCerrar: () -> Unit,
 ) {
     val contexto = LocalContext.current
@@ -199,6 +201,7 @@ private fun RecibirDialogo(
     var pendiente by rememberSaveable { mutableStateOf<String?>(null) }
     var errorCamara by rememberSaveable { mutableStateOf<String?>(null) }
     var intentos by rememberSaveable { mutableIntStateOf(0) }
+    var guardando by remember { mutableStateOf(false) }
 
     val camara = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { tomada ->
         val nombre = pendiente
@@ -289,15 +292,21 @@ private fun RecibirDialogo(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                intentos++
-                if (Validaciones.observaciones(estado, observaciones) == null) {
-                    val resultado = onRecibir(estado, observaciones, foto)
-                    // Con la devolución registrada la foto pertenece al préstamo y ya no se borra al cerrar.
-                    if (resultado == null) foto = null
-                    error = resultado
-                }
-            }) { Text("Recibir equipo") }
+            TextButton(
+                enabled = !guardando,
+                onClick = {
+                    intentos++
+                    if (Validaciones.observaciones(estado, observaciones) == null) {
+                        guardando = true
+                        onRecibir(estado, observaciones, foto) { resultado ->
+                            guardando = false
+                            // Con la devolución registrada la foto pertenece al préstamo y ya no se borra al cerrar.
+                            if (resultado == null) foto = null
+                            error = resultado
+                        }
+                    }
+                },
+            ) { Text(if (guardando) "Guardando…" else "Recibir equipo") }
         },
         dismissButton = { TextButton(onClick = cerrar) { Text("Cancelar") } },
     )

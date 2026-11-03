@@ -1,14 +1,15 @@
 package appmovil.prestaaula.data
 
+import androidx.room.withTransaction
+import appmovil.prestaaula.data.db.PrestaAulaDb
+import appmovil.prestaaula.data.db.aEntidad
+import appmovil.prestaaula.data.db.aModelo
 import appmovil.prestaaula.model.Bloques
 import appmovil.prestaaula.model.Ocupacion
 import appmovil.prestaaula.model.Reserva
-import appmovil.prestaaula.model.diasHabiles
 import appmovil.prestaaula.model.ocupacionEnBloque
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -17,18 +18,18 @@ sealed interface ResultadoReserva {
     data class Error(val mensaje: String) : ResultadoReserva
 }
 
-// En memoria; mismo criterio que InventarioRepository (PrestaAulaApp la persiste en Room).
+// Repositorio de reservas (tabla "reservas"). `ahora` se inyecta para poder probar con una hora fija.
 class ReservaRepository(
-    private val inventario: InventarioRepository,
-    inicial: List<Reserva> = reservasDemo(LocalDate.now()),
+    private val db: PrestaAulaDb,
     private val ahora: () -> LocalDateTime = { LocalDateTime.now() },
 ) {
-    private val _reservas = MutableStateFlow(inicial)
-    val reservas: StateFlow<List<Reserva>> = _reservas.asStateFlow()
+    private val dao = db.reservaDao()
 
-    // Valida y guarda todo o nada; sincronizado para que dos reservas no choquen.
-    @Synchronized
-    fun reservar(
+    val reservas: Flow<List<Reserva>> = dao.observarTodas().map { filas -> filas.map { it.aModelo() } }
+
+    // Valida y guarda todo o nada. La revisión de choques y el guardado van en la misma transacción:
+    // SQLite atiende una escritura a la vez, así dos docentes no pueden tomar el mismo bloque.
+    suspend fun reservar(
         equipoId: Int,
         docenteId: Int,
         docente: String,
@@ -55,54 +56,36 @@ class ReservaRepository(
             }
         }
 
-        val equipo = inventario.equipos.value.firstOrNull { it.id == equipoId }
-            ?: return ResultadoReserva.Error("El equipo no existe")
-        val actuales = _reservas.value
-        for (b in ordenados) {
-            when (ocupacionEnBloque(equipo, actuales, fecha, b, hoy)) {
-                Ocupacion.Libre -> Unit
-                is Ocupacion.Reservado -> return ResultadoReserva.Error("El equipo ya está reservado en el bloque $b")
-                Ocupacion.Prestado -> return ResultadoReserva.Error("El equipo está prestado en este momento")
-                Ocupacion.EnMantencion -> return ResultadoReserva.Error("El equipo está en mantención")
+        return db.withTransaction {
+            val equipo = db.equipoDao().obtener(equipoId)?.aModelo()
+                ?: return@withTransaction ResultadoReserva.Error("El equipo no existe")
+            val actuales = dao.obtenerDeEquipo(equipoId).map { it.aModelo() }
+            for (b in ordenados) {
+                val error = when (ocupacionEnBloque(equipo, actuales, fecha, b, hoy)) {
+                    Ocupacion.Libre -> null
+                    is Ocupacion.Reservado -> "El equipo ya está reservado en el bloque $b"
+                    Ocupacion.Prestado -> "El equipo está prestado en este momento"
+                    Ocupacion.EnMantencion -> "El equipo está en mantención"
+                }
+                if (error != null) return@withTransaction ResultadoReserva.Error(error)
             }
+
+            // Una fila por bloque (una clase doble son 2 reservas seguidas); id 0 = lo asigna SQLite.
+            val nuevas = ordenados.map { Reserva(0, equipoId, docenteId, docente, curso.trim(), fecha, it) }
+            val ids = dao.insertar(nuevas.map { it.aEntidad() })
+            ResultadoReserva.Exito(nuevas.zip(ids) { r, id -> r.copy(id = id.toInt()) })
         }
-
-        var ultimoId = actuales.maxOfOrNull { it.id } ?: 0
-        val nuevas = ordenados.map { Reserva(++ultimoId, equipoId, docenteId, docente, curso.trim(), fecha, it) }
-        _reservas.update { it + nuevas }
-        return ResultadoReserva.Exito(nuevas)
-    }
-
-    // Una reserva cumplida (el equipo ya se entregó) deja de ocupar el horario.
-    @Synchronized
-    fun consumir(ids: Collection<Int>) {
-        _reservas.update { lista -> lista.filterNot { it.id in ids } }
     }
 
     // Solo el dueño puede cancelar, y no reservas de días pasados.
-    @Synchronized
-    fun cancelar(ids: List<Int>, docenteId: Int): Boolean {
+    suspend fun cancelar(ids: List<Int>, docenteId: Int): Boolean {
+        if (ids.isEmpty()) return false
         val hoy = ahora().toLocalDate()
-        val objetivo = _reservas.value.filter { it.id in ids && it.docenteId == docenteId && !it.fecha.isBefore(hoy) }
-        if (ids.isEmpty() || objetivo.size != ids.size) return false
-        _reservas.update { lista -> lista.filterNot { it in objetivo } }
-        return true
+        return db.withTransaction {
+            val objetivo = dao.obtenerPorIds(ids).filter { it.docenteId == docenteId && !it.fecha.isBefore(hoy) }
+            if (objetivo.size != ids.size) return@withTransaction false
+            dao.borrar(ids)
+            true
+        }
     }
-}
-
-private fun reservasDemo(hoy: LocalDate): List<Reserva> {
-    // Próximos días hábiles, para que los datos de ejemplo nunca caigan en fin de semana.
-    val manana = diasHabiles(hoy.plusDays(1), 1).first()
-    val pasado = diasHabiles(manana.plusDays(1), 1).first()
-    return listOf(
-        Reserva(1, equipoId = 6, docenteId = 101, docente = "Prof. Rojas", curso = "7°A", fecha = hoy, bloque = 2),
-        Reserva(2, equipoId = 6, docenteId = 101, docente = "Prof. Rojas", curso = "7°A", fecha = hoy, bloque = 3),
-        Reserva(3, equipoId = 1, docenteId = 102, docente = "Prof. Soto", curso = "8°B", fecha = hoy, bloque = 4),
-        Reserva(4, equipoId = 7, docenteId = 103, docente = "Prof. Díaz", curso = "2°M", fecha = hoy, bloque = 2),
-        Reserva(5, equipoId = 4, docenteId = 102, docente = "Prof. Soto", curso = "6°A", fecha = manana, bloque = 1),
-        // Reservas del usuario de prueba "Prof. Muñoz" (id 1), para "Mis reservas".
-        Reserva(6, equipoId = 2, docenteId = 1, docente = "Prof. Muñoz", curso = "7°A", fecha = manana, bloque = 3),
-        Reserva(7, equipoId = 2, docenteId = 1, docente = "Prof. Muñoz", curso = "7°A", fecha = manana, bloque = 4),
-        Reserva(8, equipoId = 8, docenteId = 1, docente = "Prof. Muñoz", curso = "8°B", fecha = pasado, bloque = 2),
-    )
 }

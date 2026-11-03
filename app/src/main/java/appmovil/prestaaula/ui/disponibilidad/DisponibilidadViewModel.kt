@@ -1,6 +1,7 @@
 package appmovil.prestaaula.ui.disponibilidad
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import appmovil.prestaaula.data.InventarioRepository
 import appmovil.prestaaula.data.ReservaRepository
 import appmovil.prestaaula.data.ResultadoReserva
@@ -11,9 +12,13 @@ import appmovil.prestaaula.model.TipoEquipo
 import appmovil.prestaaula.model.Usuario
 import appmovil.prestaaula.model.Validaciones
 import appmovil.prestaaula.model.diasHabiles
+import appmovil.prestaaula.ui.ejecutar
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import java.time.LocalDate
 import java.time.LocalTime
 
@@ -27,8 +32,11 @@ class DisponibilidadViewModel(
     minutosAhora: Int = LocalTime.now().let { it.hour * 60 + it.minute },
 ) : ViewModel() {
 
-    val equipos: StateFlow<List<Equipo>> = inventario.equipos
-    val reservas: StateFlow<List<Reserva>> = repositorio.reservas
+    // Equipos y reservas desde Room: la tabla de disponibilidad se recalcula sola con cada cambio.
+    val equipos: StateFlow<List<Equipo>> =
+        inventario.equipos.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    val reservas: StateFlow<List<Reserva>> =
+        repositorio.reservas.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     val dias: List<LocalDate> = diasHabiles(hoy)
     val puedeReservar: Boolean = usuario.rol.puedeReservar
 
@@ -81,9 +89,18 @@ class DisponibilidadViewModel(
         }
     }
 
-    fun reservar(equipoId: Int, curso: String): ResultadoReserva {
-        if (!puedeReservar) return ResultadoReserva.Error("Tu rol no puede reservar equipos")
-        Validaciones.curso(curso)?.let { return ResultadoReserva.Error(it) }
-        return repositorio.reservar(equipoId, usuario.id, usuario.nombre, curso, _fecha.value, _bloques.value)
+    // Avisa el mensaje de error, o null si la reserva quedó guardada.
+    fun reservar(equipoId: Int, curso: String, alTerminar: (String?) -> Unit = {}): Job {
+        // Fecha y tramo se leen al tocar "Confirmar", no cuando termine de guardarse.
+        val fecha = _fecha.value
+        val bloques = _bloques.value
+        return ejecutar(alTerminar) {
+            if (!puedeReservar) return@ejecutar "Tu rol no puede reservar equipos"
+            Validaciones.curso(curso)?.let { return@ejecutar it }
+            when (val r = repositorio.reservar(equipoId, usuario.id, usuario.nombre, curso, fecha, bloques)) {
+                is ResultadoReserva.Exito -> null
+                is ResultadoReserva.Error -> r.mensaje
+            }
+        }
     }
 }
