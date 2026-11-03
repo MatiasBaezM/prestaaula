@@ -8,6 +8,7 @@ import appmovil.prestaaula.model.ocupacionEnBloque
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.time.LocalDate
 import java.time.LocalDateTime
 
@@ -16,7 +17,7 @@ sealed interface ResultadoReserva {
     data class Error(val mensaje: String) : ResultadoReserva
 }
 
-// En memoria por ahora; mismo criterio que InventarioRepository (se cambia por Room).
+// En memoria; mismo criterio que InventarioRepository (PrestaAulaApp la persiste en Room).
 class ReservaRepository(
     private val inventario: InventarioRepository,
     inicial: List<Reserva> = reservasDemo(LocalDate.now()),
@@ -68,14 +69,14 @@ class ReservaRepository(
 
         var ultimoId = actuales.maxOfOrNull { it.id } ?: 0
         val nuevas = ordenados.map { Reserva(++ultimoId, equipoId, docenteId, docente, curso.trim(), fecha, it) }
-        _reservas.value = actuales + nuevas
+        _reservas.update { it + nuevas }
         return ResultadoReserva.Exito(nuevas)
     }
 
     // Una reserva cumplida (el equipo ya se entregó) deja de ocupar el horario.
     @Synchronized
     fun consumir(ids: Collection<Int>) {
-        _reservas.value = _reservas.value.filterNot { it.id in ids }
+        _reservas.update { lista -> lista.filterNot { it.id in ids } }
     }
 
     // Solo el dueño puede cancelar, y no reservas de días pasados.
@@ -84,7 +85,7 @@ class ReservaRepository(
         val hoy = ahora().toLocalDate()
         val objetivo = _reservas.value.filter { it.id in ids && it.docenteId == docenteId && !it.fecha.isBefore(hoy) }
         if (ids.isEmpty() || objetivo.size != ids.size) return false
-        _reservas.value = _reservas.value.filterNot { it in objetivo }
+        _reservas.update { lista -> lista.filterNot { it in objetivo } }
         return true
     }
 }

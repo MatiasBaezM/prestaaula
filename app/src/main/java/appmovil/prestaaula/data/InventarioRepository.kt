@@ -8,8 +8,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 
-// Fuente única del inventario. En memoria por ahora; se reemplaza por Room
-// manteniendo esta misma API para que préstamos y reservas no cambien.
+// Fuente única del inventario en memoria; PrestaAulaApp la persiste en Room (SQLite)
+// al detectar cambios, sin que préstamos y reservas dependan de la base de datos.
 class InventarioRepository(inicial: List<Equipo> = equiposDemo()) {
 
     private val _equipos = MutableStateFlow(inicial)

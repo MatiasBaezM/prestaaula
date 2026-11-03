@@ -9,6 +9,7 @@ import appmovil.prestaaula.model.agruparReservas
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.time.LocalDateTime
 
 // Cada movimiento actualiza de inmediato el inventario (estado) y las reservas.
@@ -49,7 +50,7 @@ class PrestamoRepository(
         ).firstOrNull()?.let { reservas.consumir(it.ids) }
         inventario.cambiarEstado(equipoId, EstadoEquipo.PRESTADO)
         val id = (_prestamos.value.maxOfOrNull { it.id } ?: 0) + 1
-        _prestamos.value = _prestamos.value + Prestamo(id, equipoId, docente.id, docente.nombre, curso.trim(), ahoraActual)
+        _prestamos.update { it + Prestamo(id, equipoId, docente.id, docente.nombre, curso.trim(), ahoraActual) }
         return null
     }
 
@@ -97,7 +98,7 @@ class PrestamoRepository(
     }
 
     private fun actualizar(id: Int, cambio: (Prestamo) -> Prestamo) {
-        _prestamos.value = _prestamos.value.map { if (it.id == id) cambio(it) else it }
+        _prestamos.update { lista -> lista.map { if (it.id == id) cambio(it) else it } }
     }
 }
 

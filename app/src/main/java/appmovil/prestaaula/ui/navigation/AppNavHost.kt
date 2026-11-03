@@ -7,7 +7,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
@@ -70,8 +70,8 @@ private inline fun <reified T : ViewModel> vmDeApp(crossinline crear: (PrestaAul
 @Composable
 fun AppNavHost(auth: AuthViewModel = viewModel()) {
     val navController = rememberNavController()
-    val usuario by auth.usuarioActual.collectAsState()
-    val form by auth.form.collectAsState()
+    val usuario by auth.usuarioActual.collectAsStateWithLifecycle()
+    val form by auth.form.collectAsStateWithLifecycle()
     val rutaActual = navController.currentBackStackEntryAsState().value?.destination?.route
 
     // Tras rotar, NavHost restaura su estado e ignora este valor.

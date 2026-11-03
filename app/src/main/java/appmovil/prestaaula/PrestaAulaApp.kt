@@ -2,18 +2,19 @@ package appmovil.prestaaula
 
 import android.app.Application
 import android.util.Log
-import appmovil.prestaaula.data.ArchivoJson
-import appmovil.prestaaula.data.Codec
 import appmovil.prestaaula.data.InventarioRepository
 import appmovil.prestaaula.data.PrestamoRepository
 import appmovil.prestaaula.data.ReservaRepository
+import appmovil.prestaaula.data.db.PrestaAulaDb
+import appmovil.prestaaula.data.db.aEntidad
+import appmovil.prestaaula.data.db.aModelo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
-import java.io.File
+import kotlinx.coroutines.runBlocking
 
 class PrestaAulaApp : Application() {
     // Repositorios compartidos por todas las pantallas (misma fuente de verdad).
@@ -28,20 +29,37 @@ class PrestaAulaApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        val archivoEquipos = ArchivoJson(File(filesDir, "equipos.json"))
-        val archivoReservas = ArchivoJson(File(filesDir, "reservas.json"))
-        val archivoPrestamos = ArchivoJson(File(filesDir, "prestamos.json"))
+        val dao = PrestaAulaDb.crear(this).almacen()
 
-        // Sin archivo (primera vez) cada repositorio parte con sus datos de ejemplo.
-        inventario = archivoEquipos.cargar(Codec::equiposDeJson)
-            ?.let { InventarioRepository(it) } ?: InventarioRepository()
-        reservas = archivoReservas.cargar(Codec::reservasDeJson)
-            ?.let { ReservaRepository(inventario, it) } ?: ReservaRepository(inventario)
-        prestamos = archivoPrestamos.cargar(Codec::prestamosDeJson)
-            ?.let { PrestamoRepository(inventario, reservas, it) } ?: PrestamoRepository(inventario, reservas)
+        // Lectura única al arrancar (son pocas filas). Sin equipos guardados (primera vez, o BD
+        // ilegible) cada repositorio parte con sus datos de ejemplo, en vez de caerse.
+        // El mapeo a modelo también va dentro del try: una fila corrupta (fecha o enum inválidos)
+        // no debe tirar la app al abrir.
+        val guardados = try {
+            runBlocking(Dispatchers.IO) {
+                Triple(
+                    dao.equipos().map { it.aModelo() },
+                    dao.reservas().map { it.aModelo() },
+                    dao.prestamos().map { it.aModelo() },
+                )
+            }
+        } catch (e: Exception) {
+            Log.w("PrestaAula", "No se pudo leer la base de datos", e)
+            null
+        }
 
-        // Ante cualquier cambio se guardan los tres juntos: en disco nunca queda el inventario de una
-        // versión con los préstamos de otra (p. ej. un préstamo activo con su equipo "Disponible").
+        if (guardados != null && guardados.first.isNotEmpty()) {
+            val (e, r, p) = guardados
+            inventario = InventarioRepository(e)
+            reservas = ReservaRepository(inventario, r)
+            prestamos = PrestamoRepository(inventario, reservas, p)
+        } else {
+            inventario = InventarioRepository()
+            reservas = ReservaRepository(inventario)
+            prestamos = PrestamoRepository(inventario, reservas)
+        }
+
+        // Ante cualquier cambio se guardan los tres juntos, en una transacción.
         // drop(1): lo inicial no se escribe, así los datos de ejemplo siguen relativos a "hoy"
         // hasta el primer cambio real.
         scope.launch {
@@ -49,9 +67,11 @@ class PrestaAulaApp : Application() {
                 .drop(1)
                 .collect { (equipos, listaReservas, listaPrestamos) ->
                     try {
-                        archivoEquipos.escribir(Codec.equiposAJson(equipos))
-                        archivoReservas.escribir(Codec.reservasAJson(listaReservas))
-                        archivoPrestamos.escribir(Codec.prestamosAJson(listaPrestamos))
+                        dao.reemplazarTodo(
+                            equipos.map { it.aEntidad() },
+                            listaReservas.map { it.aEntidad() },
+                            listaPrestamos.map { it.aEntidad() },
+                        )
                     } catch (e: Exception) {
                         // Sin espacio u otro error de disco: se reintenta en el próximo cambio, sin cerrar la app.
                         Log.w("PrestaAula", "No se pudieron guardar los datos", e)

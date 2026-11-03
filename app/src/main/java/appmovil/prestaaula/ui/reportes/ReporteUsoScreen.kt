@@ -28,7 +28,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,9 +43,9 @@ import appmovil.prestaaula.ui.components.FilaChips
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReporteUsoScreen(vm: ReporteUsoViewModel, onVolver: () -> Unit) {
-    val equipos by vm.equipos.collectAsState()
-    val registro by vm.registro.collectAsState()
-    val periodo by vm.periodo.collectAsState()
+    val equipos by vm.equipos.collectAsStateWithLifecycle()
+    val registro by vm.registro.collectAsStateWithLifecycle()
+    val periodo by vm.periodo.collectAsStateWithLifecycle()
     val resumen = resumenUso(filtrarPorPeriodo(registro, periodo, vm.hoy), equipos)
 
     Scaffold(

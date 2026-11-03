@@ -25,7 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -42,8 +42,8 @@ import appmovil.prestaaula.ui.components.fechaLarga
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MisReservasScreen(vm: MisReservasViewModel, onVolver: () -> Unit) {
-    val equipos by vm.equipos.collectAsState()
-    val reservas by vm.reservas.collectAsState()
+    val equipos by vm.equipos.collectAsStateWithLifecycle()
+    val reservas by vm.reservas.collectAsStateWithLifecycle()
     val grupos = agruparReservas(vm.propias(reservas))
 
     // Se guarda el id de la primera reserva del grupo: sobrevive a la rotación.

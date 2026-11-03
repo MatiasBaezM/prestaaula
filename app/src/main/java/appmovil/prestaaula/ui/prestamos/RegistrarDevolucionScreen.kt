@@ -52,7 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -73,8 +73,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegistrarDevolucionScreen(vm: RegistrarDevolucionViewModel, onVolver: () -> Unit) {
-    val equipos by vm.equipos.collectAsState()
-    val registro by vm.registro.collectAsState()
+    val equipos by vm.equipos.collectAsStateWithLifecycle()
+    val registro by vm.registro.collectAsStateWithLifecycle()
     val activos = registro.filter { it.activo }.sortedBy { it.retiro }
 
     val snackbar = remember { SnackbarHostState() }

@@ -34,7 +34,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,8 +62,8 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RegistrarPrestamoScreen(vm: RegistrarPrestamoViewModel, onVolver: () -> Unit) {
-    val equipos by vm.equipos.collectAsState()
-    val reservas by vm.reservas.collectAsState()
+    val equipos by vm.equipos.collectAsStateWithLifecycle()
+    val reservas by vm.reservas.collectAsStateWithLifecycle()
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()

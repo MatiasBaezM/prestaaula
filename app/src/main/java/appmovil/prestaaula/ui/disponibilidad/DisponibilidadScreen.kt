@@ -32,7 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,11 +65,11 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DisponibilidadScreen(vm: DisponibilidadViewModel, onVolver: () -> Unit) {
-    val equipos by vm.equipos.collectAsState()
-    val reservas by vm.reservas.collectAsState()
-    val fecha by vm.fecha.collectAsState()
-    val bloques by vm.bloques.collectAsState()
-    val filtro by vm.filtroTipo.collectAsState()
+    val equipos by vm.equipos.collectAsStateWithLifecycle()
+    val reservas by vm.reservas.collectAsStateWithLifecycle()
+    val fecha by vm.fecha.collectAsStateWithLifecycle()
+    val bloques by vm.bloques.collectAsStateWithLifecycle()
+    val filtro by vm.filtroTipo.collectAsStateWithLifecycle()
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()

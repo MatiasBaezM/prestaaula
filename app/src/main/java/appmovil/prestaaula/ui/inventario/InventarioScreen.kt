@@ -43,7 +43,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,8 +61,8 @@ import appmovil.prestaaula.ui.theme.PrestaaulaTheme
 
 @Composable
 fun InventarioScreen(vm: InventarioViewModel, onVolver: () -> Unit) {
-    val equipos by vm.equipos.collectAsState()
-    val filtro by vm.filtroTipo.collectAsState()
+    val equipos by vm.equipos.collectAsStateWithLifecycle()
+    val filtro by vm.filtroTipo.collectAsStateWithLifecycle()
     val vibrador = rememberVibrador()
     // Un pulso confirma la acción; dos avisan que no se pudo (misma convención que el resto de la app).
     fun conVibracion(error: String?): String? {

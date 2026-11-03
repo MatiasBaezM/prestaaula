@@ -25,7 +25,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,9 +41,9 @@ import appmovil.prestaaula.ui.components.rememberVibrador
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RetiroDevolucionScreen(vm: RetiroDevolucionViewModel, onVolver: () -> Unit) {
-    val equipos by vm.equipos.collectAsState()
-    val registro by vm.registro.collectAsState()
-    val reservas by vm.reservas.collectAsState()
+    val equipos by vm.equipos.collectAsStateWithLifecycle()
+    val registro by vm.registro.collectAsStateWithLifecycle()
+    val reservas by vm.reservas.collectAsStateWithLifecycle()
     val vibrador = rememberVibrador()
     val prestamos = vm.misPrestamos(registro)
     // Una clase doble se muestra como un solo retiro, igual que en "Mis reservas".
